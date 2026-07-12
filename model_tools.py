@@ -935,6 +935,17 @@ def _coerce_json(value: str, expected_python_type: type):
 
 def _coerce_number(value: str, integer_only: bool = False):
     """Try to parse *value* as a number.  Returns original string on failure."""
+    # Try an exact integer parse first. Routing an integer string through
+    # float() would round-trip it via an IEEE-754 double and silently corrupt
+    # any magnitude above 2**53 — e.g. a Discord/Telegram/Slack snowflake ID
+    # "1234567890123456789" becomes ...768, so the tool acts on the wrong
+    # channel/message/user. int() preserves arbitrary precision, so exact
+    # integer inputs never touch a float. Non-integer strings ("3.0", "1e5")
+    # fall through to the float path below, preserving prior behavior.
+    try:
+        return int(value.strip())
+    except (ValueError, TypeError):
+        pass
     try:
         f = float(value)
     except (ValueError, OverflowError):

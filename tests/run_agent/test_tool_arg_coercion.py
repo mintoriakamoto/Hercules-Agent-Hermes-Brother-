@@ -65,6 +65,23 @@ class TestCoerceNumber:
     def test_scientific_notation(self):
         assert _coerce_number("1e5") == 100000
 
+    def test_large_integer_preserves_precision(self):
+        """Integers above 2**53 must not be corrupted by a float round-trip.
+
+        A Discord/Telegram/Slack snowflake ID passed as a string must survive
+        coercion byte-exact; routing it through float() would silently mangle
+        the low digits and make the tool act on the wrong channel/message.
+        """
+        snowflake = "1234567890123456789"
+        assert _coerce_number(snowflake) == 1234567890123456789
+        assert _coerce_number(snowflake, integer_only=True) == 1234567890123456789
+        assert str(_coerce_number(snowflake)) == snowflake
+
+    def test_large_negative_integer_preserves_precision(self):
+        big = "-98765432109876543210"
+        assert _coerce_number(big, integer_only=True) == -98765432109876543210
+        assert str(_coerce_number(big)) == big
+
     def test_inf_stays_string(self):
         """Infinity is not JSON-serializable, so it should stay as string."""
         result = _coerce_number("inf")
