@@ -15611,7 +15611,7 @@ def mount_spa(application: FastAPI):
 _BUILTIN_DASHBOARD_THEMES = [
     {"name": "default",       "label": "Hercules Teal",         "description": "Classic dark teal — the canonical Hercules look"},
     {"name": "default-large", "label": "Hercules Teal (Large)", "description": "Hercules Teal with bigger fonts and roomier spacing"},
-    {"name": "nous-blue",     "label": "Nous Blue",           "description": "Light mode — vivid Nous-blue accents on cream canvas"},
+    {"name": "aegean-light",  "label": "Aegean Light",        "description": "Light mode — Aegean teal accents on marble canvas"},
     {"name": "midnight",      "label": "Midnight",            "description": "Deep blue-violet with cool accents"},
     {"name": "ember",     "label": "Ember",          "description": "Warm crimson and bronze — forge vibes"},
     {"name": "mono",      "label": "Mono",           "description": "Clean grayscale — minimal and focused"},
