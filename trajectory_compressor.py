@@ -414,17 +414,35 @@ class TrajectoryCompressor:
     def _get_async_client(self):
         """Return an AsyncOpenAI client bound to the current event loop.
 
-        Created lazily so that each ``asyncio.run()`` call in
-        ``process_directory()`` gets a client tied to its own loop,
-        avoiding "Event loop is closed" errors on repeated calls.
+        Memoized per running loop: each ``asyncio.run()`` call in
+        ``process_directory()`` gets a client tied to its own loop (avoiding
+        "Event loop is closed" errors), but within a single loop the client is
+        reused across every trajectory. Previously this built a brand-new
+        ``AsyncOpenAI`` — and its httpx connection pool — on every call and
+        never closed the prior one, so a large batch (``max_concurrent_requests``
+        summaries over thousands of trajectories) leaked thousands of clients
+        and exhausted file descriptors mid-run.
         """
+        import asyncio
         from openai import AsyncOpenAI
         from agent.auxiliary_client import _to_openai_base_url
-        # Always create a fresh client so it binds to the running loop.
+        try:
+            loop_id = id(asyncio.get_running_loop())
+        except RuntimeError:
+            loop_id = None
+        if (
+            self.async_client is not None
+            and getattr(self, "_async_client_loop_id", None) == loop_id
+        ):
+            return self.async_client
+        # Loop changed (or first use) — bind a fresh client to this loop. Any
+        # prior client belonged to a now-closed loop, so its sockets are
+        # already torn down with that loop.
         self.async_client = AsyncOpenAI(
             api_key=self._async_client_api_key,
             base_url=_to_openai_base_url(self.config.base_url),
         )
+        self._async_client_loop_id = loop_id
         return self.async_client
 
     def _detect_provider(self) -> str:
@@ -512,13 +530,19 @@ class TrajectoryCompressor:
         for i in range(max(0, n - self.config.protect_last_n_turns), n):
             protected.add(i)
         
-        # Determine compressible region
-        # Start after the last protected head turn
-        head_protected = [i for i in protected if i < n // 2]
-        tail_protected = [i for i in protected if i >= n // 2]
-        
+        # Determine the compressible region: everything between the protected
+        # head turns and the contiguous protected tail. Derive the tail
+        # boundary from the actual last-N range, NOT an ``n // 2`` midpoint.
+        # When ``protect_last_n_turns > n / 2`` the tail extends below the
+        # midpoint; the old midpoint split then misclassified genuine tail
+        # turns as head, forcing ``compressible_start >= compressible_end`` and
+        # collapsing the region to empty — so an over-budget trajectory was
+        # returned uncompressed and stayed over the token limit.
+        tail_start = max(0, n - self.config.protect_last_n_turns)
+        head_protected = [i for i in protected if i < tail_start]
+
         compressible_start = max(head_protected) + 1 if head_protected else 0
-        compressible_end = min(tail_protected) if tail_protected else n
+        compressible_end = tail_start
 
         return protected, compressible_start, compressible_end
 
@@ -630,7 +654,10 @@ TURNS TO SUMMARIZE:
 
 Write only the summary, starting with "[CONTEXT SUMMARY]:" prefix."""
 
-        for attempt in range(self.config.max_retries):
+        # max(1, ...): a configured max_retries of 0 would skip the loop
+        # entirely and fall off the end returning None, which then gets written
+        # into the trajectory as a non-string turn value. Always attempt once.
+        for attempt in range(max(1, self.config.max_retries)):
             try:
                 metrics.summarization_api_calls += 1
                 summary_temperature = _effective_temperature_for_model(
@@ -699,7 +726,10 @@ TURNS TO SUMMARIZE:
 
 Write only the summary, starting with "[CONTEXT SUMMARY]:" prefix."""
 
-        for attempt in range(self.config.max_retries):
+        # max(1, ...): a configured max_retries of 0 would skip the loop
+        # entirely and fall off the end returning None, which then gets written
+        # into the trajectory as a non-string turn value. Always attempt once.
+        for attempt in range(max(1, self.config.max_retries)):
             try:
                 metrics.summarization_api_calls += 1
                 summary_temperature = _effective_temperature_for_model(
