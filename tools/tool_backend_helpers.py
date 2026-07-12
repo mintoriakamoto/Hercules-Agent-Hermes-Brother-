@@ -15,56 +15,29 @@ _VALID_MODAL_MODES = {"auto", "direct", "managed"}
 
 
 def managed_nous_tools_enabled(*, force_fresh: bool = False) -> bool:
-    """Return True when the user is entitled to the Nous Tool Gateway.
+    """Return True when the user is entitled to a managed Tool Gateway.
 
-    Entitlement is paid Nous Portal service access OR a live free tool pool
-    (``tool_gateway_entitled``). Per-category coverage (the pool funds image but
-    not video, etc.) is narrowed by callers via ``tool_gateway_entitled_for``;
-    this coarse gate only answers "is any managed tool usable at all".
-
-    Tool Gateway availability fails closed on unknown/error entitlement.  We
-    intentionally catch all exceptions and return False — never block startup.
-    ``force_fresh=True`` is for interactive configuration flows that should
-    reflect a just-purchased subscription, credits, or pool grant immediately.
+    The managed Tool Gateway entitlement source has been removed, so there is
+    no managed entitlement to check and this always returns False — callers
+    fall through to their direct (API-key / local) tool backends.  The
+    ``force_fresh`` parameter is retained for call-site compatibility.
     """
-    try:
-        from hercules_cli.nous_account import get_nous_portal_account_info
-
-        if force_fresh:
-            account_info = get_nous_portal_account_info(force_fresh=True)
-        else:
-            account_info = get_nous_portal_account_info()
-        if not account_info.logged_in:
-            return False
-        return account_info.tool_gateway_entitled
-    except Exception:
-        return False
+    return False
 
 
 def nous_tool_gateway_unavailable_message(
-    capability: str = "the Nous Tool Gateway",
+    capability: str = "the managed Tool Gateway",
     *,
     force_fresh: bool = False,
 ) -> str:
-    """Return account-aware guidance for an unavailable Nous Tool Gateway path."""
-    try:
-        from hercules_cli.nous_account import (
-            format_nous_portal_entitlement_message,
-            get_nous_portal_account_info,
-        )
+    """Return guidance for an unavailable managed Tool Gateway path.
 
-        account_info = get_nous_portal_account_info(force_fresh=force_fresh)
-        message = format_nous_portal_entitlement_message(
-            account_info,
-            capability=capability,
-        )
-        if message:
-            return message
-    except Exception:
-        pass
+    The managed entitlement source has been removed; this now returns generic
+    guidance pointing callers at direct API-key configuration.
+    """
     return (
-        f"{capability} is unavailable. Run `hercules model` to refresh your "
-        "Nous Portal login and billing status."
+        f"{capability} is unavailable. Configure a direct API key for this "
+        "capability to enable it."
     )
 
 

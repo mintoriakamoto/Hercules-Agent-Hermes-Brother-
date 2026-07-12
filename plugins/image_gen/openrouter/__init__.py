@@ -503,24 +503,10 @@ def _build_providers() -> List[OpenRouterCompatImageProvider]:
                 ],
             },
         ),
-        OpenRouterCompatImageProvider(
-            provider_name="nous",
-            display_name="Nous Portal",
-            runtime_name="nous",
-            config_key="nous",
-            model_env_var="NOUS_IMAGE_MODEL",
-            setup_schema={
-                "name": "Nous Portal (image)",
-                "badge": "subscription",
-                "tag": "Reference-grounded image generation via Nous Portal (OpenRouter-backed)",
-                "env_vars": [],
-                "requires_nous_auth": True,
-            },
-        ),
     ]
 
 
 def register(ctx: Any) -> None:
-    """Register the OpenRouter + Nous Portal image gen providers."""
+    """Register the OpenRouter image gen providers."""
     for provider in _build_providers():
         ctx.register_image_gen_provider(provider)

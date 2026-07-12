@@ -2694,7 +2694,7 @@ async def get_status(profile: Optional[str] = None):
 
         # Dashboard auth gate (Phase 7): surface whether the gate is engaged
         # and which providers are registered so ``hercules status`` and the
-        # SPA's StatusPage can show "OAuth gate ON via Nous Research" or
+        # SPA's StatusPage can show "OAuth gate ON" or
         # "loopback only — no auth gate" with no extra round trips.
         auth_required = bool(getattr(app.state, "auth_required", False))
         auth_providers: list[str] = []
@@ -2704,21 +2704,6 @@ async def get_status(profile: Optional[str] = None):
         except Exception:
             # Module not importable yet (early startup) — leave as [].
             pass
-
-        # Nous bootstrap-session validity for the NAS health sweep. A hosted
-        # agent whose Nous auth dies terminally (invalid_grant / quarantine)
-        # looks HEALTHY to every liveness/connectivity probe — the machine,
-        # relay, and this dashboard all stay up — yet every inference turn
-        # fails. This is the ONLY signal that surfaces that condition, and it
-        # is determinable with no working token (local auth-store state). NAS
-        # re-mints the bootstrap session when it reads "terminal". Best-effort:
-        # never let auth classification break the public liveness probe.
-        nous_session_valid = "unknown"
-        try:
-            from hercules_cli.auth import get_nous_session_validity
-            nous_session_valid = get_nous_session_validity()
-        except Exception:
-            nous_session_valid = "unknown"
 
         # Always-public liveness + auth-gate shape. Safe for external uptime
         # probes (NAS's wildcard-subdomain liveness probe), the SPA's pre-login
@@ -2742,7 +2727,6 @@ async def get_status(profile: Optional[str] = None):
             "active_sessions": active_sessions,
             "auth_required": auth_required,
             "auth_providers": auth_providers,
-            "nous_session_valid": nous_session_valid,
         }
 
         # Profile + gateway topology: which profiles exist, whether one
@@ -3036,52 +3020,6 @@ def _safe_call(mod, fn_name: str, default):
         return fn() if callable(fn) else default
     except Exception:
         return default
-
-
-# ---------------------------------------------------------------------------
-# Portal endpoint — Nous Portal auth + Tool Gateway routing status (read-only).
-# ---------------------------------------------------------------------------
-
-
-@app.get("/api/portal")
-async def get_portal_status():
-    cfg = load_config() or {}
-    auth: Dict[str, Any] = {}
-    try:
-        from hercules_cli.auth import get_nous_auth_status
-
-        auth = get_nous_auth_status() or {}
-    except Exception:
-        auth = {}
-
-    features = []
-    try:
-        from hercules_cli.nous_subscription import get_nous_subscription_features
-
-        feats = get_nous_subscription_features(cfg)
-        if feats is not None:
-            for feat in feats.items():
-                if getattr(feat, "managed_by_nous", False):
-                    state = "via Nous Portal"
-                elif getattr(feat, "active", False) and getattr(feat, "current_provider", None):
-                    state = feat.current_provider
-                elif getattr(feat, "active", False):
-                    state = "active"
-                else:
-                    state = "not configured"
-                features.append({"label": getattr(feat, "label", ""), "state": state})
-    except Exception:
-        _log.exception("portal features failed")
-
-    model_cfg = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
-    return {
-        "logged_in": bool(auth.get("logged_in")),
-        "portal_url": auth.get("portal_base_url"),
-        "inference_url": auth.get("inference_base_url"),
-        "provider": str((model_cfg or {}).get("provider") or ""),
-        "subscription_url": "https://portal.nousresearch.com/manage-subscription",
-        "features": features,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -5406,59 +5344,16 @@ def get_recommended_default_model(provider: str = ""):
     """Return the recommended default model for a freshly-authenticated provider.
 
     Mirrors the model-curation `hercules model` does so GUI onboarding lands on a
-    sensible default instead of blindly taking the first curated entry. For
-    Nous this honors the user's free/paid tier: free users get a free model,
-    paid users get the full curated default. For any other provider it falls
-    back to the first curated model (same as before).
+    sensible default instead of blindly taking the first curated entry. Falls
+    back to the first curated model for the provider (same as before).
 
     Response: {"provider": str, "model": str, "free_tier": bool | None}
-    where free_tier is True/False for Nous and None otherwise. `model` may be
-    empty if nothing could be resolved (caller degrades gracefully).
+    where free_tier is None. `model` may be empty if nothing could be resolved
+    (caller degrades gracefully).
     """
     slug = (provider or "").strip().lower()
 
-    if slug == "nous":
-        try:
-            from hercules_cli.models import (
-                get_curated_nous_model_ids,
-                get_pricing_for_provider,
-                check_nous_free_tier,
-                partition_nous_models_by_tier,
-                union_with_portal_free_recommendations,
-                union_with_portal_paid_recommendations,
-            )
-            from hercules_cli.auth import get_provider_auth_state
-
-            model_ids = get_curated_nous_model_ids()
-            pricing = get_pricing_for_provider("nous") or {}
-            free_tier = check_nous_free_tier(force_fresh=True)
-
-            portal_url = ""
-            try:
-                state = get_provider_auth_state("nous") or {}
-                portal_url = state.get("portal_base_url", "") or ""
-            except Exception:
-                portal_url = ""
-
-            if free_tier:
-                model_ids, pricing = union_with_portal_free_recommendations(
-                    model_ids, pricing, portal_url
-                )
-                model_ids, _unavailable = partition_nous_models_by_tier(
-                    model_ids, pricing, free_tier=True
-                )
-            else:
-                model_ids, pricing = union_with_portal_paid_recommendations(
-                    model_ids, pricing, portal_url
-                )
-
-            model = model_ids[0] if model_ids else ""
-            return {"provider": "nous", "model": model, "free_tier": bool(free_tier)}
-        except Exception:
-            _log.exception("GET /api/model/recommended-default (nous) failed")
-            return {"provider": "nous", "model": "", "free_tier": None}
-
-    # Non-Nous: first curated model for the provider, matching prior behaviour.
+    # First curated model for the provider, matching prior behaviour.
     try:
         from hercules_cli.inventory import build_models_payload, load_picker_context
 
@@ -5665,34 +5560,7 @@ def _apply_model_assignment_sync(
         )
         cfg["model"] = model_cfg
 
-        # When switching the main provider to Nous, mirror the CLI's
-        # post-model-selection behaviour (hercules_cli/main.py
-        # prompt_enable_tool_gateway / tools_config apply_nous_managed_defaults):
-        # auto-route any *unconfigured* tools through the Nous Tool Gateway.
-        # This is purely additive — apply_nous_managed_defaults skips every
-        # tool where the user already has a direct key (FIRECRAWL_API_KEY,
-        # FAL_KEY, etc.) or an explicit backend/provider in config, so it
-        # never overwrites a user's own setup. GUI users thus land on the
-        # gateway the same way CLI users do, without a separate prompt.
         gateway_tools: list[str] = []
-        if provider.strip().lower() == "nous":
-            try:
-                from hercules_cli.nous_subscription import apply_nous_managed_defaults
-                from hercules_cli.tools_config import _get_platform_tools
-
-                enabled = _get_platform_tools(
-                    cfg, "cli", include_default_mcp_servers=False
-                )
-                changed = apply_nous_managed_defaults(
-                    cfg,
-                    enabled_toolsets=enabled,
-                    force_fresh=True,
-                )
-                gateway_tools = sorted(changed)
-            except Exception:
-                # Portal lookup hiccups / non-subscriber / non-nous gating
-                # must never block saving the model assignment.
-                _log.debug("apply_nous_managed_defaults skipped", exc_info=True)
 
         save_config(cfg)
 
@@ -5721,7 +5589,7 @@ def _apply_model_assignment_sync(
         # the new main one. Switching the main model does NOT touch aux pins
         # (they're independent, sticky per-task overrides — see
         # auxiliary_client._resolve_auto). A user who switches main away from
-        # a now-unpaid provider (e.g. nous with $0 balance) keeps paying 402s
+        # a now-unpaid provider (e.g. one with $0 balance) keeps paying 402s
         # on every background aux call until they reset those pins. We never
         # auto-clear them — pinning aux to a cheaper/different model is a
         # legitimate config — but we tell the caller so the UI can offer a
@@ -7983,7 +7851,7 @@ async def test_messaging_platform(platform_id: str, profile: Optional[str] = Non
 #
 # Phase 1 surfaces *which OAuth providers exist* and whether each is
 # connected, plus a disconnect button. The actual login flow (PKCE for
-# Anthropic, device-code for Nous/Codex) still runs in the CLI for now;
+# Anthropic, device-code for Codex) still runs in the CLI for now;
 # Phase 2 will add in-browser flows. For unconnected providers we return
 # the canonical ``hercules auth add <provider>`` command so the dashboard
 # can surface a one-click copy.
@@ -8144,14 +8012,6 @@ def _copilot_acp_status() -> Dict[str, Any]:
 # CLI like Claude Code or Qwen).
 _OAUTH_PROVIDER_CATALOG: tuple[Dict[str, Any], ...] = (
     {
-        "id": "nous",
-        "name": "Nous Portal",
-        "flow": "device_code",
-        "cli_command": "hercules auth add nous",
-        "docs_url": "https://portal.nousresearch.com",
-        "status_fn": None,  # dispatched via auth.get_nous_auth_status
-    },
-    {
         "id": "openai-codex",
         "name": "OpenAI OAuth (ChatGPT)",
         "flow": "device_code",
@@ -8173,7 +8033,7 @@ _OAUTH_PROVIDER_CATALOG: tuple[Dict[str, Any], ...] = (
         # MiniMax's flow is structurally device-code (verification URI +
         # user code, backend polls the token endpoint) with a PKCE
         # extension for code-binding. The dashboard renders the same UX
-        # as Nous's device-code flow; the PKCE bit is a security
+        # as the other device-code flows; the PKCE bit is a security
         # extension that doesn't change the operator experience.
         "flow": "device_code",
         "cli_command": "hercules auth add minimax-oauth",
@@ -8230,16 +8090,6 @@ def _resolve_provider_status(provider_id: str, status_fn) -> Dict[str, Any]:
             return {"logged_in": False, "error": str(e)}
     try:
         from hercules_cli import auth as hauth
-        if provider_id == "nous":
-            raw = hauth.get_nous_auth_status()
-            return {
-                "logged_in": bool(raw.get("logged_in")),
-                "source": "nous_portal",
-                "source_label": raw.get("portal_base_url") or "Nous Portal",
-                "token_preview": _truncate_token(raw.get("access_token")),
-                "expires_at": raw.get("access_expires_at"),
-                "has_refresh_token": bool(raw.get("has_refresh_token")),
-            }
         if provider_id == "openai-codex":
             raw = hauth.get_codex_auth_status()
             return {
@@ -8503,10 +8353,8 @@ async def disconnect_oauth_provider(
             return {"ok": bool(cleared), "provider": provider_id}
 
         try:
-            from hercules_cli.auth import clear_provider_auth, invalidate_nous_auth_status_cache
+            from hercules_cli.auth import clear_provider_auth
             cleared = clear_provider_auth(provider_id)
-            if provider_id == "nous":
-                invalidate_nous_auth_status_cache()
             _log.info("oauth/disconnect: %s (cleared=%s)", provider_id, cleared)
             return {"ok": bool(cleared), "provider": provider_id}
         except Exception as e:
@@ -8531,8 +8379,8 @@ async def disconnect_oauth_provider(
 #          → persists to ~/.hercules/.anthropic_oauth.json AND credential pool
 #          → returns { ok: true, status: "approved" }
 #
-#   Device code (Nous, OpenAI Codex):
-#     1. POST /api/providers/oauth/{nous|openai-codex}/start
+#   Device code (OpenAI Codex):
+#     1. POST /api/providers/oauth/{openai-codex}/start
 #          → server hits provider's device-auth endpoint
 #          → gets { user_code, verification_url, device_code, interval, expires_in }
 #          → spawns background poller thread that polls the token endpoint
@@ -8795,64 +8643,12 @@ async def _start_device_code_flow(
     provider_id: str,
     profile: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Initiate a device-code flow (Nous, OpenAI Codex, MiniMax, or xAI).
+    """Initiate a device-code flow (OpenAI Codex, MiniMax, or xAI).
 
     Calls the provider's device-auth endpoint via the existing CLI helpers,
     then spawns a background poller. Returns the user-facing display fields
     so the UI can render the verification page link + user code.
     """
-    if provider_id == "nous":
-        from hercules_cli.auth import (
-            _request_device_code,
-            PROVIDER_REGISTRY,
-        )
-        import httpx
-        pconfig = PROVIDER_REGISTRY["nous"]
-        portal_base_url = (
-            os.getenv("HERCULES_PORTAL_BASE_URL")
-            or os.getenv("NOUS_PORTAL_BASE_URL")
-            or pconfig.portal_base_url
-        ).rstrip("/")
-        client_id = pconfig.client_id
-        scope = pconfig.scope
-
-        def _do_nous_device_request():
-            with httpx.Client(
-                timeout=httpx.Timeout(15.0),
-                headers={"Accept": "application/json"},
-            ) as client:
-                return (
-                    _request_device_code(
-                        client=client,
-                        portal_base_url=portal_base_url,
-                        client_id=client_id,
-                        scope=scope,
-                    ),
-                    scope,
-                )
-
-        device_data, effective_scope = await asyncio.get_running_loop().run_in_executor(
-            None, _do_nous_device_request
-        )
-        sid, sess = _new_oauth_session("nous", "device_code", profile=profile)
-        sess["device_code"] = str(device_data["device_code"])
-        sess["interval"] = int(device_data["interval"])
-        sess["expires_at"] = time.time() + int(device_data["expires_in"])
-        sess["portal_base_url"] = portal_base_url
-        sess["client_id"] = client_id
-        sess["scope"] = effective_scope
-        threading.Thread(
-            target=_nous_poller, args=(sid,), daemon=True, name=f"oauth-poll-{sid[:6]}"
-        ).start()
-        return {
-            "session_id": sid,
-            "flow": "device_code",
-            "user_code": str(device_data["user_code"]),
-            "verification_url": str(device_data["verification_uri_complete"]),
-            "expires_in": int(device_data["expires_in"]),
-            "poll_interval": int(device_data["interval"]),
-        }
-
     if provider_id == "openai-codex":
         # Codex uses fixed OpenAI device-auth endpoints; reuse the helper.
         sid, _ = _new_oauth_session("openai-codex", "device_code", profile=profile)
@@ -8891,8 +8687,8 @@ async def _start_device_code_flow(
     if provider_id == "minimax-oauth":
         # MiniMax uses a device-code-style flow (verification URI + user
         # code + background poll) with a PKCE extension on top. From the
-        # operator's perspective it's identical to Nous's device-code
-        # flow; the PKCE bit (verifier + challenge from
+        # operator's perspective it's identical to the other device-code
+        # flows; the PKCE bit (verifier + challenge from
         # _minimax_pkce_pair) is a security extension that binds the
         # token exchange to the original session.
         from hercules_cli.auth import (
@@ -9003,76 +8799,12 @@ async def _start_device_code_flow(
     raise HTTPException(status_code=400, detail=f"Provider {provider_id} does not support device-code flow")
 
 
-def _nous_poller(session_id: str) -> None:
-    """Background poller that drives a Nous device-code flow to completion."""
-    from hercules_cli.auth import (
-        _poll_for_token,
-        refresh_nous_oauth_from_state,
-    )
-    from datetime import datetime, timezone
-    import httpx
-    with _oauth_sessions_lock:
-        sess = _oauth_sessions.get(session_id)
-    if not sess:
-        return
-    portal_base_url = sess["portal_base_url"]
-    client_id = sess["client_id"]
-    device_code = sess["device_code"]
-    interval = sess["interval"]
-    scope = sess.get("scope")
-    expires_in = max(60, int(sess["expires_at"] - time.time()))
-    try:
-        with httpx.Client(timeout=httpx.Timeout(15.0), headers={"Accept": "application/json"}) as client:
-            token_data = _poll_for_token(
-                client=client,
-                portal_base_url=portal_base_url,
-                client_id=client_id,
-                device_code=device_code,
-                expires_in=expires_in,
-                poll_interval=interval,
-            )
-        # Same post-processing as _nous_device_code_login (validate/refresh JWT)
-        now = datetime.now(timezone.utc)
-        token_ttl = int(token_data.get("expires_in") or 0)
-        auth_state = {
-            "portal_base_url": portal_base_url,
-            "inference_base_url": token_data.get("inference_base_url"),
-            "client_id": client_id,
-            "scope": token_data.get("scope") or scope,
-            "token_type": token_data.get("token_type", "Bearer"),
-            "access_token": token_data["access_token"],
-            "refresh_token": token_data.get("refresh_token"),
-            "obtained_at": now.isoformat(),
-            "expires_at": (
-                datetime.fromtimestamp(now.timestamp() + token_ttl, tz=timezone.utc).isoformat()
-                if token_ttl else None
-            ),
-            "expires_in": token_ttl,
-        }
-        with _profile_scope(_oauth_session_profile(session_id)):
-            full_state = refresh_nous_oauth_from_state(
-                auth_state,
-                timeout_seconds=15.0,
-                force_refresh=False,
-            )
-            from hercules_cli.auth import persist_nous_credentials
-            persist_nous_credentials(full_state)
-        with _oauth_sessions_lock:
-            sess["status"] = "approved"
-        _log.info("oauth/device: nous login completed (session=%s)", session_id)
-    except Exception as e:
-        _log.warning("nous device-code poll failed (session=%s): %s", session_id, e)
-        with _oauth_sessions_lock:
-            sess["status"] = "error"
-            sess["error_message"] = str(e)
-
-
 def _minimax_poller(session_id: str) -> None:
     """Background poller that drives a MiniMax OAuth flow to completion.
 
-    Mirrors `_nous_poller` but calls the MiniMax-specific token endpoint,
-    which uses a PKCE-style ``code_verifier`` + ``user_code`` rather than
-    the ``device_code`` field used by Nous. On success, builds the same
+    Calls the MiniMax-specific token endpoint, which uses a PKCE-style
+    ``code_verifier`` + ``user_code`` rather than a ``device_code``
+    field. On success, builds the same
     auth_state dict that ``_minimax_oauth_login`` (the CLI flow) builds
     and persists via ``_minimax_save_auth_state`` — so the dashboard
     path leaves the system in the same state as
@@ -9449,7 +9181,7 @@ async def poll_oauth_session(
 ):
     """Poll a session's status (no auth — read-only state).
 
-    Shared by the device-code flows (Nous, OpenAI Codex, MiniMax, xAI).
+    Shared by the device-code flows (OpenAI Codex, MiniMax, xAI).
     Each surfaces progress through the same background-worker-updated
     ``status`` field, so a single poll endpoint serves them all.
     """
@@ -11026,7 +10758,7 @@ async def set_mcp_server_enabled(
 
 @app.get("/api/mcp/catalog")
 async def list_mcp_catalog(profile: Optional[str] = None):
-    """Browse the Nous-approved MCP catalog (the optional-mcps/ manifests).
+    """Browse the approved MCP catalog (the optional-mcps/ manifests).
 
     Each entry reports whether it's already installed and enabled so the UI
     can show install / enabled state inline.  This is the same catalog
@@ -12191,7 +11923,7 @@ async def update_skills_hub(
 # Human-readable labels for each hub source id (matches `hercules skills search`
 # provenance).  Keep in sync with create_source_router()'s source list.
 _SKILL_HUB_SOURCE_LABELS = {
-    "official": "Official (Nous)",
+    "official": "Official",
     "hercules-index": "Hercules Index",
     "skills-sh": "skills.sh",
     "well-known": "Well-Known",
@@ -13517,7 +13249,6 @@ async def get_toolset_config(name: str, profile: Optional[str] = None):
                     "tag": prov.get("tag", ""),
                     "env_vars": env_vars,
                     "post_setup": prov.get("post_setup"),
-                    "requires_nous_auth": bool(prov.get("requires_nous_auth")),
                     "is_active": is_active,
                 })
     return {
@@ -13547,7 +13278,7 @@ def _resolve_toolset_model_plugin(ts_key: str, provider_row: dict) -> Optional[s
     """Map a provider picker row to its model-catalog plugin name.
 
     Plugin-backed rows carry ``image_gen_plugin_name`` / ``video_gen_plugin_name``;
-    the managed "Nous Subscription" image row instead carries the legacy
+    the managed image row instead carries the legacy
     ``imagegen_backend: "fal"`` marker (same underlying FAL catalog).
     """
     if ts_key == "image_gen":
@@ -17019,13 +16750,6 @@ def start_server(
     """
     import uvicorn
 
-    try:
-        from hercules_cli.nous_auth_keepalive import start_nous_auth_keepalive
-
-        start_nous_auth_keepalive()
-    except Exception as exc:
-        _log.debug("Nous auth keepalive did not start: %s", exc)
-
     # Phase 0: stash the auth-gate flag on app.state so middleware / SPA-token
     # injection / WS-auth paths can branch on it consistently.  Phase 3.5
     # uses this to decide whether to refuse the bind, log the gate-on
@@ -17058,15 +16782,6 @@ def start_server(
             # without it the operator would only see "no providers" which
             # is misleading when the provider IS installed but unconfigured.
             skip_reasons: list[str] = []
-            try:
-                from plugins.dashboard_auth import nous as _nous_plugin
-
-                if _nous_plugin.LAST_SKIP_REASON:
-                    skip_reasons.append(
-                        f"  • nous: {_nous_plugin.LAST_SKIP_REASON}"
-                    )
-            except Exception:
-                pass
 
             _fix_hint = (
                 "Configure an auth provider before exposing the dashboard:\n"
@@ -17075,7 +16790,7 @@ def start_server(
                 "    (hash with: python -c \"from "
                 "plugins.dashboard_auth.basic import hash_password; "
                 "print(hash_password('your-password'))\")\n"
-                "  • OAuth: run `hercules dashboard register` (Nous Portal) or "
+                "  • OAuth: run `hercules dashboard register` or "
                 "install a DashboardAuthProvider plugin.\n"
                 "There is no unauthenticated public-bind option — to keep it "
                 "local, bind 127.0.0.1 and tunnel in (SSH / Tailscale)."

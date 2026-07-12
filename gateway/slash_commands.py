@@ -3865,40 +3865,6 @@ class GatewaySlashCommandsMixin:
         key = "gateway.branch.branched_one" if msg_count == 1 else "gateway.branch.branched_many"
         return t(key, title=branch_title, count=msg_count, parent=parent_session_id, new=new_session_id)
 
-    async def _handle_credits_command(self, event: MessageEvent) -> str:
-        """Handle /credits -- show Nous credit balance and the top-up handoff.
-
-        Renders the balance block + identity line + a tappable top-up URL that
-        opens the portal billing page with the modal open. The terminal does NOT
-        confirm, poll, or track payment (billing phase 2a) — checkout happens in
-        the browser and the next /credits shows the new balance. The tappable URL
-        is the affordance: it works on every platform (button-capable or plain
-        text like SMS/email). Fetched off the event loop; fail-open.
-        """
-        from agent.account_usage import build_credits_view
-
-        try:
-            view = await asyncio.to_thread(build_credits_view, markdown=True)
-        except Exception:
-            view = None
-
-        if view is None or not view.logged_in:
-            return t("gateway.credits.not_logged_in")
-
-        lines: list[str] = ["💳 **Nous credits**"]
-        for line in view.balance_lines:
-            if line.lstrip().startswith("📈"):
-                continue  # drop the helper's header; we print our own
-            lines.append(line)
-        if view.identity_line:
-            lines.append("")
-            lines.append(view.identity_line)
-        if view.topup_url:
-            lines.append("")
-            lines.append(f"Top up: {view.topup_url}")
-            lines.append("Complete your top-up in the browser — credits will appear in /credits shortly.")
-        return "\n".join(lines)
-
     def _context_breakdown_lines(self, agent, source) -> list[str]:
         """Render the per-category context breakdown for /usage.
 
@@ -3981,7 +3947,6 @@ class GatewaySlashCommandsMixin:
         # Fetch account usage off the event loop so slow provider APIs don't
         # block the gateway. Failures are non-fatal -- account_lines stays [].
         account_lines: list[str] = []
-        credits_lines: list[str] = []
         if provider:
             try:
                 account_snapshot = await asyncio.to_thread(
@@ -3994,21 +3959,6 @@ class GatewaySlashCommandsMixin:
                 account_snapshot = None
             if account_snapshot:
                 account_lines = render_account_usage_lines(account_snapshot, markdown=True)
-
-        # ── Nous credits magnitudes + monthly-grant % gauge ─────────────
-        # Shared with the CLI / TUI /usage block via nous_credits_lines(): a single
-        # auth-gate + portal-fetch + render path (which also honors the dev fixture).
-        # Run off the event loop. The helper gates on "a Nous account is logged in"
-        # — NOT the inference provider and NOT nested under `if provider:` — so a
-        # Nous-credentialled user running inference elsewhere (or with none resident)
-        # still sees their balance. NO recovery trigger: messaging binds no notice
-        # consumer, so /usage only displays. Fail-open: never break /usage.
-        try:
-            from agent.account_usage import nous_credits_lines
-
-            credits_lines = await asyncio.to_thread(nous_credits_lines, markdown=True)
-        except Exception:
-            credits_lines = []  # fail-open: never break /usage
 
         if agent and hasattr(agent, "session_total_tokens") and agent.session_api_calls > 0:
             lines = []
@@ -4054,9 +4004,6 @@ class GatewaySlashCommandsMixin:
             if account_lines:
                 lines.append("")
                 lines.extend(account_lines)
-            if credits_lines:
-                lines.append("")
-                lines.extend(credits_lines)
 
             return "\n".join(lines)
 
@@ -4076,18 +4023,9 @@ class GatewaySlashCommandsMixin:
             if account_lines:
                 lines.append("")
                 lines.extend(account_lines)
-            if credits_lines:
-                lines.append("")
-                lines.extend(credits_lines)
             return "\n".join(lines)
-        if account_lines or credits_lines:
-            # account-only, credits-only, or both — joined with a blank divider.
-            parts = list(account_lines)
-            if credits_lines:
-                if parts:
-                    parts.append("")
-                parts.extend(credits_lines)
-            return "\n".join(parts)
+        if account_lines:
+            return "\n".join(account_lines)
         return t("gateway.usage.no_data")
 
     async def _handle_insights_command(self, event: MessageEvent) -> str:

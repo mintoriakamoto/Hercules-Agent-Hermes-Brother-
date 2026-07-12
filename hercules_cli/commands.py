@@ -229,9 +229,6 @@ COMMAND_REGISTRY: list[CommandDef] = [
     CommandDef("restart", "Gracefully restart the gateway after draining active runs", "Session",
                gateway_only=True),
     CommandDef("usage", "Show token usage and rate limits for the current session", "Info"),
-    CommandDef("credits", "Show Nous credit balance and top up", "Info"),
-    CommandDef("billing", "Manage Nous terminal billing — buy credits, auto-reload, limits", "Info",
-               cli_only=True),
     CommandDef("insights", "Show usage insights and analytics", "Info",
                args_hint="[days]"),
     CommandDef("platforms", "Show gateway/messaging platform status", "Info",
@@ -1158,12 +1155,10 @@ _SLACK_PRIORITY_ALIASES = ("btw", "bg")
 # surface (CLI, TUI, Telegram, Discord). Keep this list TIGHT and intentional —
 # the telegram-parity test reads it so an entry here is a deliberate
 # "Slack-via-/hercules" decision, not a silent clamp.
-#   - credits: the billing/top-up surface; reached via /hercules credits on Slack.
-#   - billing: the terminal-billing surface (buy/auto-reload/limit); /hercules billing.
 #   - moa: high-cost slash mode, available through /hercules moa to avoid
 #     displacing existing native Slack slash commands at the 50-command cap.
 #   - debug: the log/report upload surface; reached via /hercules debug on Slack.
-_SLACK_VIA_HERCULES_ONLY = frozenset({"credits", "billing", "moa", "debug"})
+_SLACK_VIA_HERCULES_ONLY = frozenset({"moa", "debug"})
 
 
 def _sanitize_slack_name(raw: str) -> str:
