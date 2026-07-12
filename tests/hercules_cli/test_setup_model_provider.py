@@ -8,7 +8,6 @@ that the setup wizard correctly syncs config from disk after the call.
 from __future__ import annotations
 
 from hercules_cli.config import load_config, save_config, save_env_value
-from hercules_cli.nous_subscription import NousFeatureState, NousSubscriptionFeatures
 from hercules_cli.setup import _print_setup_summary, setup_model_provider
 
 
@@ -287,100 +286,3 @@ def test_setup_summary_marks_anthropic_auth_as_vision_available(tmp_path, monkey
 
     assert "Vision (image analysis)" in output
     assert "missing run 'hercules setup' to configure" not in output
-
-
-def test_setup_summary_shows_camofox_when_browser_feature_is_camofox(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("HERCULES_HOME", str(tmp_path))
-    _clear_provider_env(monkeypatch)
-    monkeypatch.setattr(
-        "hercules_cli.setup.get_nous_subscription_features",
-        lambda config: NousSubscriptionFeatures(
-            subscribed=False,
-            nous_auth_present=False,
-            provider_is_nous=False,
-            features={
-                "web": NousFeatureState("web", "Web tools", True, False, False, False, False, True, ""),
-                "image_gen": NousFeatureState("image_gen", "Image generation", True, False, False, False, False, True, ""),
-                "video_gen": NousFeatureState("video_gen", "Video generation", False, False, False, False, False, False, ""),
-                "tts": NousFeatureState("tts", "OpenAI TTS", True, False, False, False, False, True, ""),
-                "browser": NousFeatureState("browser", "Browser automation", True, True, True, False, True, True, "Camofox"),
-                "modal": NousFeatureState("modal", "Modal execution", False, False, False, False, False, True, "local"),
-            },
-        ),
-    )
-    monkeypatch.setattr("agent.auxiliary_client.get_available_vision_backends", lambda: [])
-
-    _print_setup_summary(load_config(), tmp_path)
-    output = capsys.readouterr().out
-
-    assert "Browser Automation (Camofox)" in output
-
-
-def test_setup_summary_does_not_mark_incomplete_browserbase_as_available(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("HERCULES_HOME", str(tmp_path))
-    _clear_provider_env(monkeypatch)
-    monkeypatch.setenv("BROWSERBASE_API_KEY", "bb-key")
-    monkeypatch.setattr(
-        "hercules_cli.setup.get_nous_subscription_features",
-        lambda config: NousSubscriptionFeatures(
-            subscribed=False,
-            nous_auth_present=False,
-            provider_is_nous=False,
-            features={
-                "web": NousFeatureState("web", "Web tools", True, False, False, False, False, True, ""),
-                "image_gen": NousFeatureState("image_gen", "Image generation", True, False, False, False, False, True, ""),
-                "video_gen": NousFeatureState("video_gen", "Video generation", False, False, False, False, False, False, ""),
-                "tts": NousFeatureState("tts", "OpenAI TTS", True, False, False, False, False, True, ""),
-                "browser": NousFeatureState("browser", "Browser automation", True, False, False, False, False, True, "Browserbase"),
-                "modal": NousFeatureState("modal", "Modal execution", False, False, False, False, False, True, "local"),
-            },
-        ),
-    )
-    monkeypatch.setattr("agent.auxiliary_client.get_available_vision_backends", lambda: [])
-
-    _print_setup_summary(load_config(), tmp_path)
-    output = capsys.readouterr().out
-
-    assert "Browser Automation (Browserbase)" not in output
-    assert "Browser Automation" in output
-    assert "BROWSERBASE_API_KEY/BROWSERBASE_PROJECT_ID" in output
-
-
-def test_setup_summary_local_browser_unavailable_without_chromium(
-    tmp_path, monkeypatch, capsys
-):
-    """End-to-end: agent-browser present but no Chromium in local mode must
-    render as unavailable with an install hint — not a false 'available'.
-
-    Unlike the mocked-feature tests above, this drives the real
-    ``get_nous_subscription_features`` so the surface stays aligned with the
-    runtime gate in ``tools.browser_tool.check_browser_requirements``.
-    """
-    monkeypatch.setenv("HERCULES_HOME", str(tmp_path))
-    _clear_provider_env(monkeypatch)
-
-    cfg = load_config()
-    browser_cfg = cfg.get("browser")
-    if not isinstance(browser_cfg, dict):
-        browser_cfg = {}
-        cfg["browser"] = browser_cfg
-    browser_cfg["cloud_provider"] = "local"
-    save_config(cfg)
-
-    # Only stub the readiness probes; the feature resolver itself is real.
-    monkeypatch.setattr("hercules_cli.nous_subscription._has_agent_browser", lambda: True)
-    monkeypatch.setattr(
-        "hercules_cli.nous_subscription.get_nous_portal_account_info",
-        lambda *a, **k: None,
-    )
-    monkeypatch.setattr("tools.browser_tool._chromium_installed", lambda: False)
-    monkeypatch.setattr("tools.browser_tool._using_lightpanda_engine", lambda: False)
-    monkeypatch.setattr(
-        "agent.auxiliary_client.get_available_vision_backends", lambda: []
-    )
-
-    _print_setup_summary(load_config(), tmp_path)
-    output = capsys.readouterr().out
-
-    assert "Browser Automation (Local browser)" not in output
-    assert "agent-browser install --with-deps" in output

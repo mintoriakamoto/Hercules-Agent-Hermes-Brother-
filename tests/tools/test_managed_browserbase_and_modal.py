@@ -9,8 +9,6 @@ from unittest.mock import patch
 
 import pytest
 
-from hercules_cli.nous_account import NousPortalAccountInfo
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TOOLS_DIR = REPO_ROOT / "tools"
@@ -64,24 +62,23 @@ def _restore_tool_and_agent_modules():
         sys.modules.update(original_modules)
 
 
-@pytest.fixture(autouse=True)
-def _enable_managed_nous_tools(monkeypatch):
-    """Ensure managed_nous_tools_enabled() returns True even after module reloads.
+def _force_managed_tool_gateway_enabled():
+    """Force the managed Tool Gateway entitlement gate ON in the freshly
+    (re)imported tool modules.
 
-    The _install_fake_tools_package() helper resets and reimports tool modules,
-    so a simple monkeypatch on tool_backend_helpers doesn't survive.  We patch
-    the *source* modules that the reimported modules will import from — both
-    hercules_cli.nous_account — so the function body returns True.
+    ``managed_nous_tools_enabled()`` is now a hard-coded stub returning False,
+    and ``_install_fake_tools_package`` resets + reimports the ``tools``
+    package, so a monkeypatch on the original module object does not survive.
+    We instead overwrite the callable directly on the just-loaded module
+    objects so the gateway routing paths (env-var driven) are exercised. This
+    mirrors the whole-suite intent of the previous autouse fixture without
+    depending on the removed Nous entitlement source.
     """
-    monkeypatch.setattr(
-        "hercules_cli.nous_account.get_nous_portal_account_info",
-        lambda: NousPortalAccountInfo(
-            logged_in=True,
-            source="jwt",
-            fresh=False,
-            paid_service_access=True,
-        ),
-    )
+    _force = lambda *args, **kwargs: True  # noqa: E731
+    for _mod_name in ("tools.tool_backend_helpers", "tools.managed_tool_gateway"):
+        _mod = sys.modules.get(_mod_name)
+        if _mod is not None and hasattr(_mod, "managed_nous_tools_enabled"):
+            _mod.managed_nous_tools_enabled = _force
 
 
 def _install_fake_tools_package():
@@ -96,7 +93,11 @@ def _install_fake_tools_package():
     sys.modules["tools.environments"] = env_package
 
     agent_package = types.ModuleType("agent")
-    agent_package.__path__ = []  # type: ignore[attr-defined]
+    # Real path so genuine first-party submodules (agent.redact,
+    # agent.credential_persistence, …) still resolve from disk; the explicit
+    # stubs installed below stay in sys.modules and take precedence over the
+    # real files they intentionally replace (auxiliary_client / browser_*).
+    agent_package.__path__ = [str(REPO_ROOT / "agent")]  # type: ignore[attr-defined]
     sys.modules["agent"] = agent_package
     sys.modules["agent.auxiliary_client"] = types.SimpleNamespace(
         call_llm=lambda *args, **kwargs: "",
@@ -192,6 +193,8 @@ def _install_fake_tools_package():
     sys.modules["tools.environments.modal"] = types.SimpleNamespace(ModalEnvironment=_DummyEnvironment)
     sys.modules["tools.environments.managed_modal"] = types.SimpleNamespace(ManagedModalEnvironment=_DummyEnvironment)
 
+    _force_managed_tool_gateway_enabled()
+
 
 def test_browser_use_explicit_local_mode_stays_local_even_when_managed_gateway_is_ready(tmp_path):
     _install_fake_tools_package()
@@ -232,44 +235,6 @@ def test_browserbase_does_not_use_gateway_only_configuration():
         provider = browserbase_module.BrowserbaseBrowserProvider()
 
     assert provider.is_available() is False
-
-
-def test_browser_use_availability_skips_refresh_for_expired_cached_gateway_token(tmp_path, monkeypatch):
-    _install_fake_tools_package()
-    monkeypatch.delenv("TOOL_GATEWAY_USER_TOKEN", raising=False)
-    expired_at = "2000-01-01T00:00:00+00:00"
-    (tmp_path / "auth.json").write_text(
-        '{"providers":{"nous":{"access_token":"expired-token","refresh_token":"refresh-token","expires_at":"%s"}}}'
-        % expired_at,
-        encoding="utf-8",
-    )
-    refresh_calls = []
-
-    def _record_refresh(*, refresh_skew_seconds=120, **_kwargs):
-        refresh_calls.append(refresh_skew_seconds)
-        return "fresh-token"
-
-    monkeypatch.setattr(
-        "hercules_cli.auth.resolve_nous_access_token",
-        _record_refresh,
-    )
-
-    env = os.environ.copy()
-    env.pop("BROWSER_USE_API_KEY", None)
-    env.update({
-        "HERCULES_HOME": str(tmp_path),
-        "BROWSER_USE_GATEWAY_URL": "http://127.0.0.1:3009",
-    })
-
-    with patch.dict(os.environ, env, clear=True):
-        browser_use_module = _load_plugin_module(
-            "plugins.browser.browser_use.provider",
-            "browser/browser_use/provider.py",
-        )
-        provider = browser_use_module.BrowserUseBrowserProvider()
-        assert provider.is_available() is True
-
-    assert refresh_calls == []
 
 
 def test_browser_use_managed_gateway_adds_idempotency_key_and_persists_external_call_id():
