@@ -1,7 +1,6 @@
 """Unit tests for tools/tool_backend_helpers.py.
 
 Tests cover:
-- managed_nous_tools_enabled() subscription-based gate
 - normalize_browser_cloud_provider() coercion
 - coerce_modal_mode() / normalize_modal_mode() validation
 - has_direct_modal_credentials() detection
@@ -16,117 +15,15 @@ from unittest.mock import patch
 
 import pytest
 
-from hercules_cli.nous_account import NousPaidServiceAccessInfo, NousPortalAccountInfo
 from tools.tool_backend_helpers import (
     coerce_modal_mode,
     has_direct_modal_credentials,
-    managed_nous_tools_enabled,
-    nous_tool_gateway_unavailable_message,
     normalize_browser_cloud_provider,
     normalize_modal_mode,
     prefers_gateway,
     resolve_modal_backend_state,
     resolve_openai_audio_api_key,
 )
-
-
-def _raise_import():
-    raise ImportError("simulated missing module")
-
-
-# ---------------------------------------------------------------------------
-# managed_nous_tools_enabled
-# ---------------------------------------------------------------------------
-class TestManagedNousToolsEnabled:
-    """Subscription-based gate: True for paid Nous subscribers."""
-
-    def test_disabled_when_not_logged_in(self, monkeypatch):
-        monkeypatch.setattr(
-            "hercules_cli.nous_account.get_nous_portal_account_info",
-            lambda: NousPortalAccountInfo(logged_in=False, source="none", fresh=False),
-        )
-        assert managed_nous_tools_enabled() is False
-
-    def test_disabled_for_free_tier(self, monkeypatch):
-        monkeypatch.setattr(
-            "hercules_cli.nous_account.get_nous_portal_account_info",
-            lambda: NousPortalAccountInfo(
-                logged_in=True,
-                source="jwt",
-                fresh=False,
-                paid_service_access=False,
-            ),
-        )
-        assert managed_nous_tools_enabled() is False
-
-    def test_enabled_for_paid_subscriber(self, monkeypatch):
-        monkeypatch.setattr(
-            "hercules_cli.nous_account.get_nous_portal_account_info",
-            lambda: NousPortalAccountInfo(
-                logged_in=True,
-                source="jwt",
-                fresh=False,
-                paid_service_access=True,
-            ),
-        )
-        assert managed_nous_tools_enabled() is True
-
-    def test_force_fresh_is_forwarded(self, monkeypatch):
-        calls = []
-
-        def fake_account_info(*, force_fresh=False):
-            calls.append(force_fresh)
-            return NousPortalAccountInfo(
-                logged_in=True,
-                source="account_api",
-                fresh=True,
-                paid_service_access=True,
-            )
-
-        monkeypatch.setattr(
-            "hercules_cli.nous_account.get_nous_portal_account_info",
-            fake_account_info,
-        )
-
-        assert managed_nous_tools_enabled(force_fresh=True) is True
-        assert calls == [True]
-
-    def test_returns_false_on_exception(self, monkeypatch):
-        """Should never crash — returns False on any exception."""
-        monkeypatch.setattr(
-            "hercules_cli.nous_account.get_nous_portal_account_info",
-            _raise_import,
-        )
-        assert managed_nous_tools_enabled() is False
-
-
-class TestNousToolGatewayUnavailableMessage:
-    def test_uses_entitlement_reason_for_logged_in_user(self, monkeypatch):
-        monkeypatch.setattr(
-            "hercules_cli.nous_account.get_nous_portal_account_info",
-            lambda force_fresh=False: NousPortalAccountInfo(
-                logged_in=True,
-                source="account_api",
-                fresh=True,
-                paid_service_access=False,
-                portal_base_url="https://portal.example.test",
-                paid_service_access_info=NousPaidServiceAccessInfo(
-                    allowed=False,
-                    reason="no_usable_credits",
-                    has_active_subscription=True,
-                    active_subscription_is_paid=True,
-                    subscription_credits_remaining=0,
-                    purchased_credits_remaining=0,
-                    total_usable_credits=0,
-                ),
-            ),
-        )
-
-        message = nous_tool_gateway_unavailable_message("managed image generation")
-
-        assert "credits are exhausted" in message
-        assert "managed image generation" in message
-        assert "https://portal.example.test/billing" in message
 
 
 # ---------------------------------------------------------------------------

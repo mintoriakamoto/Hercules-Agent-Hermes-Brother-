@@ -1,4 +1,4 @@
-"""Regression tests for the notice-spine (AgentNotice + emitter callbacks).
+"""Regression tests for the notice-spine (notice object + emitter callbacks).
 
 Covers:
   A. _emit_notice / _emit_notice_clear emitter behaviour (bare AIAgent via
@@ -14,8 +14,25 @@ from unittest.mock import patch
 
 import pytest
 
-from agent.credits_tracker import AgentNotice
 from run_agent import AIAgent
+
+
+class AgentNotice:
+    """Minimal stand-in for the notice object carried by the notice spine.
+
+    The spine is provider-agnostic: _emit_notice passes the object straight to
+    the bound callback, and the TUI callback reads the six snake_case fields
+    below. This local shim keeps that generic coverage independent of any
+    provider-specific notice source.
+    """
+
+    def __init__(self, text="", level="info", kind="ephemeral", ttl_ms=None, key=None, id=None):
+        self.text = text
+        self.level = level
+        self.kind = kind
+        self.ttl_ms = ttl_ms
+        self.key = key
+        self.id = id
 
 
 # ── A. Emitter behaviour ─────────────────────────────────────────────────────
