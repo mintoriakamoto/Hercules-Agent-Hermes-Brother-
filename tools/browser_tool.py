@@ -314,6 +314,28 @@ def _needs_chromium_sandbox_bypass() -> bool:
     return False
 
 
+def _inject_chromium_sandbox_bypass(browser_env: dict) -> None:
+    """Inject ``--no-sandbox`` into *browser_env* when Chromium needs it.
+
+    Shared by every Popen site that can launch Chrome (the primary command
+    path and the Lightpanda→Chrome fallback) so the fallback starts reliably
+    in the exact environments where it's most needed — running as root, in
+    Docker, or under AppArmor unprivileged-userns restriction. No-op when the
+    user has pre-set ``AGENT_BROWSER_ARGS`` / ``AGENT_BROWSER_CHROME_FLAGS``.
+    See issue #15765.
+    """
+    if (
+        "AGENT_BROWSER_ARGS" not in browser_env
+        and "AGENT_BROWSER_CHROME_FLAGS" not in browser_env
+        and _needs_chromium_sandbox_bypass()
+    ):
+        logger.debug(
+            "browser: sandbox bypass needed (root/docker/AppArmor userns) — "
+            "injecting --no-sandbox"
+        )
+        browser_env["AGENT_BROWSER_ARGS"] = "--no-sandbox,--disable-dev-shm-usage"
+
+
 def _read_command_output_files(stdout_path: str, stderr_path: str) -> tuple[str, str]:
     """Best-effort read of agent-browser stdout/stderr temp files."""
     stdout = stderr = ""
@@ -1055,6 +1077,11 @@ def _run_chrome_fallback_command(
     browser_env = _build_browser_env()
     browser_env["AGENT_BROWSER_SOCKET_DIR"] = task_socket_dir
     browser_env["PATH"] = _merge_browser_path(browser_env.get("PATH", ""))
+    # This fallback forces `--engine chrome`, so it needs the same sandbox
+    # bypass the primary path injects — otherwise Chromium refuses to start
+    # ("No usable sandbox") as root/in Docker, dead-ending the fallback in
+    # the default containerized deployment where it's needed most (#15765).
+    _inject_chromium_sandbox_bypass(browser_env)
 
     if "AGENT_BROWSER_IDLE_TIMEOUT_MS" not in browser_env:
         browser_env["AGENT_BROWSER_IDLE_TIMEOUT_MS"] = str(BROWSER_SESSION_INACTIVITY_TIMEOUT * 1000)
@@ -1116,20 +1143,25 @@ def _run_chrome_fallback_command(
             proc.kill()
             proc.wait()
             return {"success": False, "error": f"Chrome fallback '{cmd}' timed out"}
-        try:
-            with open(stdout_path, "r", encoding="utf-8") as f:
-                stdout = f.read().strip()
-            if stdout:
+        stdout, stderr = _read_command_output_files(stdout_path, stderr_path)
+        _unlink_command_output_files(stdout_path, stderr_path)
+        if stdout:
+            try:
                 return json.loads(stdout.split("\n")[-1])
-        except Exception as exc:
-            logger.debug("Chrome fallback tmp cmd '%s' error: %s", cmd, exc)
-        finally:
-            for pth in (stdout_path, stderr_path):
-                try:
-                    os.unlink(pth)
-                except OSError:
-                    pass
-        return {"success": False, "error": f"Chrome fallback '{cmd}' failed"}
+            except Exception as exc:
+                logger.debug("Chrome fallback tmp cmd '%s' parse error: %s", cmd, exc)
+        # Surface the daemon's real diagnostic (e.g. "No usable sandbox") and
+        # exit code instead of an opaque failure — the main path already does
+        # this, and without it a fallback start failure is undiagnosable.
+        detail = (stderr or stdout or "").strip()
+        err = f"Chrome fallback '{cmd}' failed (exit {proc.returncode})"
+        if detail:
+            err = f"{err}: {detail[:1000]}"
+        logger.warning(
+            "Chrome fallback '%s' failed (exit %s): %s",
+            cmd, proc.returncode, detail[:500],
+        )
+        return {"success": False, "error": err}
 
     try:
         # 3. Navigate Chrome to the same URL.
@@ -2402,18 +2434,7 @@ def _run_browser_command(
         # Honour either the legacy AGENT_BROWSER_CHROME_FLAGS (never consumed by
         # agent-browser itself, but documented in older notes) or the real
         # AGENT_BROWSER_ARGS — if the user pre-sets either, don't overwrite it.
-        if (
-            "AGENT_BROWSER_ARGS" not in browser_env
-            and "AGENT_BROWSER_CHROME_FLAGS" not in browser_env
-        ):
-            if _needs_chromium_sandbox_bypass():
-                logger.debug(
-                    "browser: sandbox bypass needed (root/docker/AppArmor userns) — "
-                    "injecting --no-sandbox"
-                )
-                browser_env["AGENT_BROWSER_ARGS"] = (
-                    "--no-sandbox,--disable-dev-shm-usage"
-                )
+        _inject_chromium_sandbox_bypass(browser_env)
 
         # Use temp files for stdout/stderr instead of pipes.
         # agent-browser starts a background daemon that inherits file
