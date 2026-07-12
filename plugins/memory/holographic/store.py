@@ -302,10 +302,12 @@ class MemoryStore:
         """
         with self._lock:
             row = self._conn.execute(
-                "SELECT fact_id, trust_score FROM facts WHERE fact_id = ?", (fact_id,)
+                "SELECT fact_id, trust_score, category FROM facts WHERE fact_id = ?",
+                (fact_id,),
             ).fetchone()
             if row is None:
                 return False
+            old_category = row["category"]
 
             assignments: list[str] = ["updated_at = CURRENT_TIMESTAMP"]
             params: list = []
@@ -344,11 +346,14 @@ class MemoryStore:
             # Recompute HRR vector if content changed
             if content is not None:
                 self._compute_hrr_vector(fact_id, content)
-            # Rebuild bank for relevant category
-            cat = category or self._conn.execute(
-                "SELECT category FROM facts WHERE fact_id = ?", (fact_id,)
-            ).fetchone()["category"]
-            self._rebuild_bank(cat)
+            # Rebuild the bank for the fact's (possibly new) category. When the
+            # category changed, the OLD category's bank must also be rebuilt —
+            # otherwise it keeps this fact's vector even though the fact no
+            # longer belongs to it, skewing that bank's compositional queries.
+            new_category = category if category is not None else old_category
+            self._rebuild_bank(new_category)
+            if category is not None and category != old_category:
+                self._rebuild_bank(old_category)
 
             return True
 
