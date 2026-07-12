@@ -263,7 +263,7 @@ TIPS = [
     "Custom providers: save named endpoints in config.yaml under custom_providers.",
     "HERCULES_EPHEMERAL_SYSTEM_PROMPT injects a system prompt that's never persisted to history.",
     "credential_pool_strategies supports fill_first, round_robin, least_used, and random rotation.",
-    "hercules auth add nous or hercules auth add openai-codex sets up OAuth-based providers.",
+    "hercules auth add openai-codex sets up OAuth-based providers.",
     "The API server supports both Chat Completions and Responses API with server-side state.",
     "tool_preview_length: 0 in config shows full file paths in the spinner's activity feed.",
     "hercules status --deep runs deeper diagnostic checks across all components.",

@@ -156,7 +156,7 @@ def _slot_runtime(slot: dict[str, str]) -> dict[str, Any]:
         # so provider branches that add auth refresh / request metadata /
         # request-shape adapters — anthropic OAuth (Bearer + anthropic-beta),
         # openai-codex Responses wrapping + Cloudflare headers, xai-oauth,
-        # bedrock SigV4 signing, nous Portal tags — still fire. Those branches
+        # bedrock SigV4 signing — still fire. Those branches
         # re-resolve their own credentials by name and ignore a forwarded
         # base_url/api_key, so forwarding is safe even for a placeholder key
         # (bedrock's "aws-sdk"). We used to maintain a name-preservation set here
