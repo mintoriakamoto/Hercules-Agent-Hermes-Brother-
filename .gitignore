@@ -8,13 +8,13 @@ __pycache__/
 .venv
 .vscode/
 .env
+# Catch-all for every .env variant (mirrors .dockerignore) so secret files
+# like .env.production can never be committed. The enumerated list before
+# missed .env.production, leaving the file most likely to hold live keys
+# unprotected. Re-allow the committed template below.
+.env.*
+!.env.example
 .op.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-.env.development
-.env.test
 .hermes-docker/
 .notebooklm-home/
 .notebooklm-cli-venv/

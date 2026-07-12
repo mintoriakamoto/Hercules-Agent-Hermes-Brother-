@@ -7497,7 +7497,11 @@ def _check_non_ascii_credential(key: str, value: str) -> str:
     bad_chars: list[str] = []
     for i, ch in enumerate(value):
         if ord(ch) > 127:
-            bad_chars.append(f"  position {i}: {ch!r} (U+{ord(ch):04X})")
+            # Report position + Unicode code point only — never the literal
+            # character. The value is a raw secret, and echoing its bytes to
+            # stderr would leak credential fragments into terminal/CI logs
+            # (the one place in this module where secret bytes reach a sink).
+            bad_chars.append(f"  position {i}: U+{ord(ch):04X}")
     sanitized = value.encode("ascii", errors="ignore").decode("ascii")
 
     print(
