@@ -274,6 +274,21 @@ app.include_router(_memory_oauth_router)
 _SESSION_TOKEN = os.environ.get("HERMES_DASHBOARD_SESSION_TOKEN") or secrets.token_urlsafe(32)
 _SESSION_HEADER_NAME = "X-Hermes-Session-Token"
 
+# Strong references to fire-and-forget background tasks. The event loop keeps
+# only a weak reference to a task, so a bare create_task() whose result is
+# discarded can be garbage-collected mid-flight. Anything spawned to run
+# independently of the request that started it must be parked here and
+# discarded on completion so it is guaranteed to run to the end.
+_FIRE_AND_FORGET_TASKS: set = set()
+
+
+def _spawn_detached(coro) -> "asyncio.Task":
+    """Run *coro* to completion in the background, safe from GC."""
+    task = asyncio.create_task(coro)
+    _FIRE_AND_FORGET_TASKS.add(task)
+    task.add_done_callback(_FIRE_AND_FORGET_TASKS.discard)
+    return task
+
 # In-browser Chat tab (/chat, /api/pty, /api/ws, …).  Always enabled: the
 # desktop app and the dashboard's own Chat tab both drive the agent over the
 # `/api/ws` + `/api/pty` WebSockets, so the embedded-chat surface is an
@@ -10586,8 +10601,11 @@ async def cron_fire_webhook(request: Request):
         return JSONResponse({"status": "gone", "job_id": job_id}, status_code=200)
 
     # Run in the background; the store CAS claim inside fire_due de-dupes a
-    # NAS/scheduler retry that arrives while this is in flight.
-    asyncio.create_task(
+    # NAS/scheduler retry that arrives while this is in flight. Must be
+    # GC-safe: we return 202 immediately and NAS will not retry a fire it
+    # saw accepted, so a task collected before it runs would silently drop
+    # the fire AND never re-arm the next one-shot.
+    _spawn_detached(
         asyncio.to_thread(_fire_cron_job_for_profile, profile, job_id)
     )
     return JSONResponse({"status": "accepted", "job_id": job_id}, status_code=202)
