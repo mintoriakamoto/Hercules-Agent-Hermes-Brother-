@@ -3399,7 +3399,7 @@ def run_one_job(job: dict, *, adapters=None, loop=None, verbose: bool = False) -
 
     This is the shared firing body extracted from ``tick``'s per-job closure so
     that BOTH the built-in ticker and an external provider's ``fire_due`` (e.g.
-    Chronos) run the identical sequence — no duplicated correctness.
+    external providers) run the identical sequence — no duplicated correctness.
 
     It does NOT decide whether the job is due, claim it, or compute the next
     run — those are the caller's concern (``tick`` advances ``next_run_at``
@@ -3416,7 +3416,7 @@ def run_one_job(job: dict, *, adapters=None, loop=None, verbose: bool = False) -
         # re-fire the job forever on restart. No-op for recurring jobs (they
         # use advance_next_run) and infinite/no-repeat jobs. This lives here in
         # the shared body so BOTH the built-in ticker and the external provider
-        # (Chronos fire_due) get at-most-times semantics.
+        # (external fire_due) get at-most-times semantics.
         if not claim_dispatch(job["id"]):
             logger.info(
                 "Job '%s': one-shot dispatch limit reached — skipping",
@@ -3544,7 +3544,7 @@ def _notify_provider_jobs_changed() -> None:
 
     Called by the consumer surfaces (model tool / CLI / REST) AFTER a
     successful store mutation (create/update/remove/pause/resume) so an external
-    provider (Chronos) can re-provision/cancel the affected one-shot via NAS.
+    provider can re-provision/cancel the affected one-shot via NAS.
     No-op for the built-in (it re-reads jobs.json each tick), so the default
     path is unchanged. Lives here (not in cron/jobs.py) to keep the store free
     of provider imports — avoids an import cycle and keeps jobs.py low-coupling.
@@ -3637,7 +3637,7 @@ def tick(verbose: bool = True, adapters=None, loop=None, sync: bool = True) -> i
         def _process_job(job: dict) -> bool:
             """Run one due job end-to-end. Thin wrapper around the shared
             module-level ``run_one_job`` so ``tick`` and external providers
-            (Chronos ``fire_due``) use the identical execute→save→deliver→mark
+            (external ``fire_due``) use the identical execute→save→deliver→mark
             body."""
             return run_one_job(job, adapters=adapters, loop=loop, verbose=verbose)
 

@@ -20838,7 +20838,7 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
     
     # Start the background cron scheduler via the resolved provider so
     # scheduled jobs fire automatically. The built-in provider is the
-    # historical in-process 60s ticker; an external provider (e.g. chronos)
+    # historical in-process 60s ticker; an external provider (e.g. a self-hosted managed provider)
     # may arm a schedule and return. Pass the event loop so cron delivery can
     # use live adapters (E2EE support).
     from cron.scheduler_provider import resolve_cron_scheduler

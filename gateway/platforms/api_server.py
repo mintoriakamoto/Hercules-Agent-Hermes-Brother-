@@ -3792,19 +3792,19 @@ class APIServerAdapter(BasePlatformAdapter):
             return web.json_response({"error": _redact_api_error_text(e)}, status=500)
 
     async def _handle_cron_fire(self, request: "web.Request") -> "web.Response":
-        """POST /api/cron/fire — Chronos managed-cron fire webhook (NAS → agent).
+        """POST /api/cron/fire — external-scheduler cron-fire webhook.
 
-        Authenticated by a NAS-minted JWT (verified via the pluggable
-        fire-verifier), NOT API_SERVER_KEY — NAS holds no API server key, and
-        this is the only inbound that can trigger remote job execution, so it
-        gets its own purpose-scoped token check.
+        Authenticated by a signed JWT (verified via the pluggable
+        fire-verifier), NOT API_SERVER_KEY — an external scheduler holds no API
+        server key, and this is the only inbound that can trigger remote job
+        execution, so it gets its own purpose-scoped token check.
 
         Returns 202 + runs the job in the background so a long agent turn never
-        trips NAS's HTTP timeout. The store CAS claim inside fire_due guards
-        against double-fire on a NAS/scheduler retry.
+        trips the caller's HTTP timeout. The store CAS claim inside fire_due
+        guards against double-fire on a scheduler retry.
         """
         from hercules_cli.config import cfg_get, load_config
-        from plugins.cron_providers.chronos.verify import get_fire_verifier
+        from cron.fire_verifier import get_fire_verifier
 
         auth = request.headers.get("Authorization", "")
         token = auth[7:].strip() if auth.startswith("Bearer ") else ""
@@ -3812,9 +3812,9 @@ class APIServerAdapter(BasePlatformAdapter):
         cfg = load_config()
         claims = get_fire_verifier()(
             token=token,
-            expected_audience=cfg_get(cfg, "cron", "chronos", "expected_audience", default=""),
-            jwks_or_key=cfg_get(cfg, "cron", "chronos", "nas_jwks_url", default="") or None,
-            issuer=cfg_get(cfg, "cron", "chronos", "portal_url", default="") or None,
+            expected_audience=cfg_get(cfg, "cron", "fire", "audience", default=""),
+            jwks_or_key=cfg_get(cfg, "cron", "fire", "jwks_url", default="") or None,
+            issuer=cfg_get(cfg, "cron", "fire", "issuer", default="") or None,
         )
         if claims is None:
             logger.warning(
@@ -4832,8 +4832,8 @@ class APIServerAdapter(BasePlatformAdapter):
             self._app.router.add_post("/api/jobs/{job_id}/resume", self._handle_resume_job)
             self._app.router.add_post("/api/jobs/{job_id}/run", self._handle_run_job)
 
-            # Chronos managed-cron fire webhook (NAS → agent). Authenticated by a
-            # NAS-minted JWT (NOT API_SERVER_KEY), so it has its own auth path.
+            # External-scheduler cron-fire webhook. Authenticated by a signed
+            # JWT (NOT API_SERVER_KEY), so it has its own auth path.
             if _CRON_AVAILABLE:
                 self._app.router.add_post("/api/cron/fire", self._handle_cron_fire)
             # Structured event streaming

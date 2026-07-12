@@ -2636,30 +2636,29 @@ DEFAULT_CONFIG = {
     "cron": {
         # Active cron SCHEDULER provider (Axis B — the trigger that decides
         # WHEN a due job fires). Empty string = the built-in in-process 60s
-        # ticker (default). Name an installed provider (plugins/cron_providers/<name>/ or
-        # $HERCULES_HOME/plugins/<name>/) to relocate the trigger — e.g. "chronos",
-        # the NAS-mediated managed-cron provider for scale-to-zero deployments.
-        # An unknown or unavailable provider falls back to the built-in, so cron
-        # never loses its trigger.
+        # ticker (default), which needs no external service. Name an installed
+        # provider (plugins/cron_providers/<name>/ or $HERCULES_HOME/plugins/<name>/)
+        # to relocate the trigger to a self-hosted managed scheduler. An unknown
+        # or unavailable provider falls back to the built-in, so cron never
+        # loses its trigger.
         "provider": "",
-        # Chronos (NAS-mediated managed cron) settings. Only consulted when
-        # provider == "chronos". All non-secret (URLs + the JWT audience): the
-        # agent holds NO external-scheduler credentials. For hosted agents, NAS
-        # sets these at provision time. The outbound provision call reuses the
-        # agent's existing Nous Portal token — there is no token key here.
-        "chronos": {
-            # NAS / portal base URL the agent calls to arm/cancel one-shots
-            # and that mints the inbound fire JWT (used as the expected issuer).
-            "portal_url": "https://portal.nousresearch.com",
-            # The agent's OWN publicly-reachable base URL for NAS→agent fires
-            # (NAS POSTs {callback_url}/api/cron/fire). Empty → Chronos is
-            # unavailable and the resolver falls back to the built-in ticker.
-            "callback_url": "",
+        # Inbound cron-fire webhook auth (cron.fire.*). Lets an EXTERNAL
+        # scheduler (a cloud scheduler, a self-hosted timer, cron-job.org, …)
+        # trigger a due job by POSTing {your_agent_url}/api/cron/fire with a
+        # short-lived signed JWT. All non-secret: the agent holds only the
+        # PUBLIC verification key, never a signing key. Leave empty to keep the
+        # endpoint closed (it refuses all tokens); the built-in ticker fires
+        # jobs on schedule without any of this.
+        "fire": {
             # This agent's expected JWT audience (e.g. "agent:{instance_id}").
-            "expected_audience": "",
-            # NAS JWKS URL for verifying the inbound fire JWT's signature.
-            # Empty → the fire endpoint refuses all tokens (no unsigned decode).
-            "nas_jwks_url": "",
+            "audience": "",
+            # JWKS URL (or inline PEM public key) used to verify the inbound
+            # fire JWT's signature. Empty → the fire endpoint refuses all
+            # tokens (no unsigned decode — this is a security boundary).
+            "jwks_url": "",
+            # Expected token issuer (optional). When set, a fire JWT whose
+            # `iss` claim doesn't match is rejected.
+            "issuer": "",
         },
         # Wrap delivered cron responses with a header (task name) and footer
         # ("The agent cannot see this message").  Set to false for clean output.

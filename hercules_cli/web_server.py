@@ -10283,24 +10283,24 @@ def _fire_cron_job_for_profile(profile: str, job_id: str) -> bool:
 
 @app.post("/api/cron/fire")
 async def cron_fire_webhook(request: Request):
-    """Chronos managed-cron fire webhook (NAS -> agent).
+    """External-scheduler cron-fire webhook.
 
-    Authenticated by a short-lived NAS-minted JWT (verified by the pluggable
-    Chronos fire-verifier), NOT the dashboard session cookie — so this path is
-    in ``PUBLIC_API_PATHS`` to bypass the dashboard auth gate, and the JWT is
-    the real gate. This is the inbound half of scale-to-zero managed cron: NAS
-    POSTs here at fire time, the agent verifies, claims the job (store CAS, so
-    at-most-once across replicas / on a NAS retry), runs it, and re-arms the
-    next one-shot.
+    Authenticated by a short-lived signed JWT (verified by the pluggable
+    fire-verifier), NOT the dashboard session cookie — so this path is in
+    ``PUBLIC_API_PATHS`` to bypass the dashboard auth gate, and the JWT is the
+    real gate. This is the inbound half of externally-scheduled cron: the
+    scheduler POSTs here at fire time, the agent verifies, claims the job
+    (store CAS, so at-most-once across replicas / on a retry), runs it, and
+    re-arms the next one-shot.
 
     Lives on the dashboard app (not the api_server adapter) because the
     dashboard is the agent's always-reachable public HTTP surface on hosted
     deployments; the gateway may be idle/scaled down.
 
     Returns 202 immediately and runs the job in the background so a long agent
-    turn never trips NAS's HTTP timeout.
+    turn never trips the caller's HTTP timeout.
     """
-    from plugins.cron_providers.chronos.verify import get_fire_verifier
+    from cron.fire_verifier import get_fire_verifier
 
     auth = request.headers.get("Authorization", "")
     token = auth[7:].strip() if auth.startswith("Bearer ") else ""
@@ -10308,9 +10308,9 @@ async def cron_fire_webhook(request: Request):
     cfg = load_config()
     claims = get_fire_verifier()(
         token=token,
-        expected_audience=cfg_get(cfg, "cron", "chronos", "expected_audience", default=""),
-        jwks_or_key=cfg_get(cfg, "cron", "chronos", "nas_jwks_url", default="") or None,
-        issuer=cfg_get(cfg, "cron", "chronos", "portal_url", default="") or None,
+        expected_audience=cfg_get(cfg, "cron", "fire", "audience", default=""),
+        jwks_or_key=cfg_get(cfg, "cron", "fire", "jwks_url", default="") or None,
+        issuer=cfg_get(cfg, "cron", "fire", "issuer", default="") or None,
     )
     if claims is None:
         return JSONResponse({"error": "invalid fire token"}, status_code=401)

@@ -1,16 +1,18 @@
-"""Inbound cron-fire token verification for Chronos (Phase 4E.1).
+"""Inbound cron-fire token verification.
 
-When NAS relays an external scheduler fire to the agent, it POSTs
-``/api/cron/fire`` with a short-lived NAS-minted JWT. This module verifies that
-JWT before any job runs — the security boundary for remotely-triggered job
-execution.
+An external scheduler (any service you point at this agent — a cloud
+scheduler, a self-hosted timer, cron-job.org, etc.) can trigger a due job by
+POSTing ``/api/cron/fire`` with a short-lived signed JWT. This module verifies
+that JWT before any job runs — the security boundary for remotely-triggered
+job execution.
 
-We verify a NAS-minted JWT (the trust path the agent already has) rather than
-let an external scheduler call the agent directly: the scheduler signs with
-NAS's keys, which the agent doesn't (and shouldn't) hold. See the plan's DQ-4.
+The scheduler signs the fire token with a private key; the agent verifies it
+against the matching public key (a JWKS URL or an inline PEM configured under
+``cron.fire.*``). The agent never holds the signing key, so a leaked agent
+credential cannot mint fire tokens.
 
-The verifier is pluggable (``get_fire_verifier``) so the escape-hatch mode
-(direct per-job cron-key) can swap in later with no handler change.
+The verifier is pluggable (``get_fire_verifier``) so an alternate auth mode
+(e.g. a direct per-job cron-key) can swap in later with no handler change.
 
 Crypto is delegated to PyJWT (already a declared dependency) — we do NOT
 hand-roll JWT verification.
@@ -21,14 +23,14 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Dict, Optional
 
-logger = logging.getLogger("cron.chronos.verify")
+logger = logging.getLogger("cron.fire_verifier")
 
 # The purpose claim that scopes a token to the fire endpoint. A general agent
 # JWT (without this claim) must NOT be replayable against /api/cron/fire.
 _FIRE_PURPOSE = "cron_fire"
 
 
-def verify_nas_fire_token(
+def verify_fire_token(
     *,
     token: str,
     expected_audience: str,
@@ -36,11 +38,11 @@ def verify_nas_fire_token(
     issuer: Optional[str] = None,
     leeway_seconds: int = 30,
 ) -> Optional[Dict[str, Any]]:
-    """Verify a NAS-minted cron-fire JWT. Return decoded claims, or None.
+    """Verify an inbound cron-fire JWT. Return decoded claims, or None.
 
     Checks (all must pass):
-      - signature against the NAS JWKS (``jwks_or_key`` is a JWKS URL) — RS256
-        family; symmetric secrets are rejected (NAS signs asymmetrically).
+      - signature against the configured JWKS (``jwks_or_key`` is a JWKS URL)
+        or inline PEM — RS/ES family; symmetric secrets are rejected.
       - ``aud`` == ``expected_audience`` (this agent: ``agent:{instance_id}``).
       - ``exp`` / ``nbf`` within ``leeway_seconds``.
       - ``iss`` == ``issuer`` when an issuer is configured.
@@ -96,8 +98,9 @@ def verify_nas_fire_token(
 def get_fire_verifier() -> Callable[..., Optional[Dict[str, Any]]]:
     """Return the active inbound-fire verifier.
 
-    Default = the NAS-JWT verifier. The DQ-4 escape hatch (direct per-job
-    cron-key) would return a cron-key verifier here instead, selected by config
-    — so the webhook handler never changes when the auth mode is swapped.
+    Default = the signed-JWT verifier. An alternate mode (e.g. a direct
+    per-job cron-key) would return a different verifier here, selected by
+    config — so the webhook handler never changes when the auth mode is
+    swapped.
     """
-    return verify_nas_fire_token
+    return verify_fire_token

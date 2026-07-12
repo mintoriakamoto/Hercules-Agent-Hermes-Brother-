@@ -1706,7 +1706,7 @@ def claim_job_for_fire(job_id: str, *, claim_ttl_seconds: int = 300) -> bool:
     at-most-once). Returns True iff THIS caller won the claim.
 
     Used by the external-provider fire path (``CronScheduler.fire_due``) when an
-    external scheduler (Chronos) signals a job is due across N gateway replicas:
+    an external scheduler signals a job is due across N gateway replicas:
     exactly one wins. Single-machine deployments always win.
 
     Under the file lock: reject if the job is missing/disabled/paused. If a

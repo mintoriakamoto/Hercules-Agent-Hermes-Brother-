@@ -1,10 +1,10 @@
-"""Tests for the Chronos cron-fire webhook (POST /api/cron/fire) — Phase 4E.2.
+"""Tests for the external-scheduler cron-fire webhook (POST /api/cron/fire) — Phase 4E.2.
 
 The webhook authenticates a NAS-minted JWT via the pluggable fire-verifier
 (NOT API_SERVER_KEY), then runs the job via the resolved provider's fire_due in
 the background, returning 202. These tests monkeypatch the verifier and
 resolve_cron_scheduler — the verifier itself is tested with real crypto in
-test_chronos_verify.py.
+test_fire_verifier.py.
 """
 
 import asyncio
@@ -53,7 +53,7 @@ async def test_valid_token_accepts_and_fires(adapter, monkeypatch):
     monkeypatch.setattr("cron.scheduler_provider.resolve_cron_scheduler", lambda: spy)
     # verifier returns claims (valid token)
     monkeypatch.setattr(
-        "plugins.cron_providers.chronos.verify.get_fire_verifier",
+        "cron.fire_verifier.get_fire_verifier",
         lambda: (lambda **kw: {"purpose": "cron_fire", "aud": "agent:x"}),
     )
 
@@ -80,7 +80,7 @@ async def test_invalid_token_401_and_no_fire(adapter, monkeypatch):
     spy = _SpyProvider()
     monkeypatch.setattr("cron.scheduler_provider.resolve_cron_scheduler", lambda: spy)
     monkeypatch.setattr(
-        "plugins.cron_providers.chronos.verify.get_fire_verifier",
+        "cron.fire_verifier.get_fire_verifier",
         lambda: (lambda **kw: None),  # verification fails
     )
 
@@ -114,7 +114,7 @@ async def test_missing_job_id_400(adapter, monkeypatch):
     spy = _SpyProvider()
     monkeypatch.setattr("cron.scheduler_provider.resolve_cron_scheduler", lambda: spy)
     monkeypatch.setattr(
-        "plugins.cron_providers.chronos.verify.get_fire_verifier",
+        "cron.fire_verifier.get_fire_verifier",
         lambda: (lambda **kw: {"purpose": "cron_fire"}),
     )
 
@@ -134,7 +134,7 @@ async def test_fire_does_not_require_api_server_key(adapter, monkeypatch):
     spy = _SpyProvider()
     monkeypatch.setattr("cron.scheduler_provider.resolve_cron_scheduler", lambda: spy)
     monkeypatch.setattr(
-        "plugins.cron_providers.chronos.verify.get_fire_verifier",
+        "cron.fire_verifier.get_fire_verifier",
         lambda: (lambda **kw: {"purpose": "cron_fire"}),
     )
 

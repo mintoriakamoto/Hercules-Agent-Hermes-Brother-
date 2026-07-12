@@ -193,15 +193,17 @@ def test_default_config_cron_provider_is_empty():
 
 
 def test_discover_cron_schedulers_returns_list():
-    """Discovery returns bundled non-default providers.
+    """Discovery returns a list of bundled non-default providers.
 
-    The built-in is core, not discovered here.
+    The built-in is core (not discovered here). With the Nous-mediated
+    an external scheduler provider removed there are currently no bundled non-default
+    providers, so discovery is typically empty — a user-installed provider
+    under $HERCULES_HOME/plugins/ would appear here.
     """
     from plugins.cron_providers import discover_cron_schedulers
 
     result = discover_cron_schedulers()
     assert isinstance(result, list)
-    assert any(name == "chronos" for name, _desc, _available in result)
 
 
 def test_load_unknown_cron_scheduler_returns_none():

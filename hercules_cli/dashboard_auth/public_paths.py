@@ -46,7 +46,7 @@ PUBLIC_API_PATHS: frozenset[str] = frozenset({
     # Read-only theme + plugin manifests for the dashboard skin engine.
     "/api/dashboard/themes",
     "/api/dashboard/plugins",
-    # Chronos managed-cron fire webhook (NAS -> agent). NOT cookie-gated: it
+    # External-scheduler cron-fire webhook. NOT cookie-gated: it
     # carries its own short-lived NAS-minted JWT (purpose=cron_fire), which the
     # handler verifies as the real auth. Must bypass the dashboard auth gate so
     # the NAS relay's bearer-only callback reaches the verifier instead of a

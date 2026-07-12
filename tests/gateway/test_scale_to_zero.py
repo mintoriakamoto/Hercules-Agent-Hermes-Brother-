@@ -74,7 +74,7 @@ def test_relay_only_is_true():
 
 
 def test_no_platform_is_true():
-    # A Chronos-only / no-messaging-platform agent can scale to zero.
+    # A an external scheduler-only / no-messaging-platform agent can scale to zero.
     assert messaging_is_relay_only_or_absent([]) is True
 
 
