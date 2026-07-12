@@ -1,4 +1,4 @@
-import type { CronJob, CronJobUpdates } from '@/types/hermes'
+import type { CronJob, CronJobUpdates } from '@/types/hercules'
 
 const asText = (value: unknown): string => (typeof value === 'string' ? value : '')
 

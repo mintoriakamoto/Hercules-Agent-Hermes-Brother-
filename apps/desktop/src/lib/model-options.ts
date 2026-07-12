@@ -1,11 +1,11 @@
-import { getGlobalModelOptions, type HermesGateway, type ModelOptionsResponse } from '@/hermes'
+import { getGlobalModelOptions, type HerculesGateway, type ModelOptionsResponse } from '@/hercules'
 
 interface ModelOptionsRequest {
   /** When false, include ambient/unconfigured providers (onboarding/setup
    *  surfaces). Chat pickers default to true so only explicitly configured
    *  providers are listed (#56974). */
   explicitOnly?: boolean
-  gateway?: HermesGateway
+  gateway?: HerculesGateway
   refresh?: boolean
   sessionId?: null | string
 }
