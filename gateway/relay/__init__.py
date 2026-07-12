@@ -472,10 +472,10 @@ def _resolve_relay_identity_token() -> str:
             token_url = token_url or ""
 
     if not token_url:
-        # Mode 2 — Nous Portal (default, unchanged behaviour).
-        from hercules_cli.auth import resolve_nous_access_token
-
-        return resolve_nous_access_token()
+        # Mode 2 (Nous Portal default) was removed with the Nous provider.
+        # Without a configured IdP token_url there is no identity to resolve;
+        # callers treat a None token as "not enrolled" and no-op gracefully.
+        return None
 
     # Mode 1 — generic OAuth2 client_credentials grant.
     import json

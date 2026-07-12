@@ -950,7 +950,7 @@ def _file_lock(
     Reentrant per-thread via ``holder.depth``. Falls back to a depth-only
     guard when neither ``fcntl`` nor ``msvcrt`` is available (rare).
     Callers supply their own ``threading.local`` so independent locks
-    (e.g. profile auth.json vs shared Nous store) don't share reentrancy
+    (e.g. profile auth.json vs a shared cross-profile store) don't share reentrancy
     state — that would let one lock's reentrant acquisition silently skip
     the other's kernel-level flock.
     """
@@ -1116,7 +1116,7 @@ def _load_provider_state_with_source(
     Most callers only need the state, but refresh paths that rotate single-use
     OAuth refresh tokens must write the updated token chain back to the same
     store they read. In profile mode ``_load_provider_state`` can read a
-    global-root fallback state; persisting a rotated Nous refresh token only to
+    global-root fallback state; persisting a rotated refresh token only to
     the profile would leave the global/root store stale and cause the next
     process to replay an already-consumed refresh token.
     """
@@ -1143,7 +1143,7 @@ def _load_provider_state(auth_store: Dict[str, Any], provider_id: str) -> Option
     In profile mode, falls back to the global-root ``auth.json`` when the
     profile has no entry for ``provider_id``. This mirrors the per-provider
     shadowing already used by ``read_credential_pool``: workers spawned in a
-    profile can see providers (e.g. ``nous``) that were only authenticated at
+    profile can see providers (e.g. ``openai-codex``) that were only authenticated at
     global scope. Once the user runs ``hercules auth login <provider>`` inside
     the profile, the profile state fully shadows the global state on the next
     read. See issue #18594 follow-up.
@@ -1404,7 +1404,7 @@ def get_provider_auth_state(provider_id: str) -> Optional[Dict[str, Any]]:
     ``read_credential_pool``'s per-provider shadowing semantics so that
     ``_seed_from_singletons`` can reseed a profile's credential pool from
     global-scope provider state (e.g. a globally-authenticated Anthropic
-    OAuth or Nous device-code session). See issue #18594 follow-up.
+    OAuth or Codex device-code session). See issue #18594 follow-up.
     """
     auth_store = _load_auth_store()
     return _load_provider_state(auth_store, provider_id)
@@ -2484,7 +2484,7 @@ def resolve_spotify_runtime_credentials(
                 if exc.relogin_required and state.get("refresh_token"):
                     # Terminal refresh failure — clear dead tokens from auth.json
                     # so subsequent calls fail fast without a network retry.
-                    # Mirrors the Nous / xAI-OAuth / Codex-OAuth / MiniMax pattern.
+                    # Mirrors the xAI-OAuth / Codex-OAuth / MiniMax pattern.
                     for _k in ("access_token", "refresh_token", "expires_at", "expires_in", "obtained_at"):
                         state.pop(_k, None)
                     state["last_auth_error"] = {
@@ -5918,7 +5918,7 @@ def _minimax_oauth_quarantine_on_terminal_refresh(state: Dict[str, Any], exc: Au
     """Wipe dead tokens from auth.json after a terminal refresh failure.
 
     Shared by both the eager-resolve path and the lazy per-request token
-    provider. Mirrors the Nous / xAI-OAuth / Codex-OAuth quarantine pattern
+    provider. Mirrors the xAI-OAuth / Codex-OAuth quarantine pattern
     so subsequent calls fail fast without a network retry.
     """
     if not (exc.relogin_required and state.get("refresh_token")):

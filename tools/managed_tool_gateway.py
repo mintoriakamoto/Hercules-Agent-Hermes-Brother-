@@ -101,23 +101,10 @@ def read_nous_access_token() -> Optional[str]:
     nous_provider = _read_nous_provider_state() or {}
     cached_token = peek_nous_access_token()
 
-    if cached_token and not _access_token_is_expiring(
-        nous_provider.get("expires_at"),
-        _NOUS_ACCESS_TOKEN_REFRESH_SKEW_SECONDS,
-    ):
-        return cached_token
-
-    try:
-        from hercules_cli.auth import resolve_nous_access_token
-
-        refreshed_token = resolve_nous_access_token(
-            refresh_skew_seconds=_NOUS_ACCESS_TOKEN_REFRESH_SKEW_SECONDS,
-        )
-        if isinstance(refreshed_token, str) and refreshed_token.strip():
-            return refreshed_token.strip()
-    except Exception as exc:
-        logger.debug("Nous access token refresh failed: %s", exc)
-
+    # The refresh-aware token path was removed with the Nous provider. Without
+    # an explicit TOOL_GATEWAY_USER_TOKEN or a valid cached token the managed
+    # gateway is simply not ready and callers fall back to direct/API-key
+    # backends.
     return cached_token
 
 

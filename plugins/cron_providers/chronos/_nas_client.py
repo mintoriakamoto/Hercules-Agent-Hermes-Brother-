@@ -41,9 +41,11 @@ class NasCronClient:
     # -- auth -------------------------------------------------------------
 
     def _access_token(self) -> str:
-        """The agent's existing Nous Portal access token (refresh-aware)."""
-        from hercules_cli.auth import resolve_nous_access_token
-        return resolve_nous_access_token()
+        """Chronos authenticated via the Nous Portal token, removed with that
+        provider. Returns an empty token so requests fail fast and the Chronos
+        cron provider degrades gracefully (it is non-functional without its
+        NAS/Portal identity)."""
+        return ""
 
     def _headers(self) -> Dict[str, str]:
         return {
