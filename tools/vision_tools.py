@@ -764,7 +764,7 @@ def _supports_media_in_tool_results(provider: str, model: str) -> bool:
     Providers covered today (per spec docs verified Apr-2026):
 
       * Anthropic Messages API (``anthropic`` provider, plus aggregators that
-        proxy Claude — ``openrouter``, ``nous``, ``vertex``, ``bedrock``):
+        proxy Claude — ``openrouter``, ``vertex``, ``bedrock``):
         ``tool_result`` blocks accept ``image`` content blocks.
       * OpenAI Chat Completions: tool messages accept array content with
         ``image_url`` parts.
@@ -788,7 +788,7 @@ def _supports_media_in_tool_results(provider: str, model: str) -> bool:
     # frontier models. Falling back to text would be a regression for
     # them.
     _AGGREGATORS = {
-        "openrouter", "nous", "vertex", "bedrock", "anthropic-vertex",
+        "openrouter", "vertex", "bedrock", "anthropic-vertex",
         "google-vertex",
     }
     if p in _AGGREGATORS:
@@ -1362,7 +1362,7 @@ def check_vision_requirements() -> bool:
 
     Mirrors the fallback chain that ``call_llm(task="vision")`` actually uses
     at runtime: first the explicit ``auxiliary.vision.provider`` (if any),
-    and if that fails, the auto chain (main provider → openrouter → nous).
+    and if that fails, the auto chain (main provider → openrouter).
     Without the auto-fallback step the tool would disappear from the model's
     tool list whenever the explicit provider name was unresolvable, even
     when the auto chain would have served the request (issue #31179).

@@ -308,7 +308,7 @@ def build_gateway_parser(
         help="Local OpenAI-compatible proxy to OAuth providers",
         description=(
             "Run a local HTTP server that forwards OpenAI-compatible requests "
-            "to an OAuth-authenticated provider (e.g. Nous Portal). External "
+            "to an OAuth-authenticated provider (e.g. xAI). External "
             "apps can point at the proxy with any bearer token; the proxy "
             "attaches your real credentials."
         ),
@@ -320,8 +320,8 @@ def build_gateway_parser(
     )
     proxy_start.add_argument(
         "--provider",
-        default="nous",
-        help="Upstream provider: nous or xai (default: nous). See `hercules proxy providers`.",
+        default="xai",
+        help="Upstream provider: xai (default: xai). See `hercules proxy providers`.",
     )
     proxy_start.add_argument(
         "--host",

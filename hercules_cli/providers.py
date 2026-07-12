@@ -54,11 +54,6 @@ HERCULES_OVERLAYS: Dict[str, HerculesOverlay] = {
         is_aggregator=True,
         base_url_env_var="OPENROUTER_BASE_URL",
     ),
-    "nous": HerculesOverlay(
-        transport="openai_chat",
-        auth_type="oauth_device_code",
-        base_url_override="https://inference-api.nousresearch.com/v1",
-    ),
     "openai-codex": HerculesOverlay(
         transport="codex_responses",
         auth_type="oauth_external",
@@ -370,7 +365,6 @@ ALIASES: Dict[str, str] = {
 
 _LABEL_OVERRIDES: Dict[str, str] = {
     "moa": "Mixture of Agents",
-    "nous": "Nous Portal",
     "openai-codex": "OpenAI Codex",
     "copilot-acp": "GitHub Copilot ACP",
     "stepfun": "StepFun Step Plan",
@@ -411,7 +405,7 @@ def get_provider(name: str) -> Optional[ProviderDef]:
     """Look up a built-in provider by id or alias.
 
     Resolution order:
-      1. Hercules overlays (for providers not in models.dev: nous, openai-codex, etc.)
+      1. Hercules overlays (for providers not in models.dev: openai-codex, etc.)
       2. models.dev catalog + Hercules overlay
 
     User-defined providers from config.yaml (``providers:`` / ``custom_providers:``)

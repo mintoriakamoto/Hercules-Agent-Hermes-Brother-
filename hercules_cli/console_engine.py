@@ -159,8 +159,6 @@ EXPECTED_HOSTED_PATHS: tuple[tuple[str, ...], ...] = (
     ("prompt-size",),
     ("insights",),
     ("security", "audit"),
-    ("portal", "info"),
-    ("portal", "tools"),
     ("send",),
     ("config", "show"),
     ("config", "path"),
@@ -1022,20 +1020,6 @@ class HerculesConsoleEngine:
             confirmation="Send this message?",
         )
 
-        portal_paths = [("info",), ("tools",)]
-        _register_command_family(
-            self,
-            root="portal",
-            paths=portal_paths,
-            summaries=_adder_summaries("hercules_cli.portal_cli", "add_parser"),
-            handler_factory=lambda fixed: _adder_handler(
-                "portal",
-                fixed,
-                "hercules_cli.portal_cli",
-                "add_parser",
-            ),
-        )
-
         _register_command_family(
             self,
             root="project",
@@ -1400,8 +1384,6 @@ HOSTED_CONFIG_BLOCKED_NAMES = {
     "inference_url",
     "inference.url",
     "inference.base_url",
-    "nous.portal_url",
-    "nous.inference_url",
     "openrouter_api_key",
     "openai_api_key",
     "anthropic_api_key",
