@@ -183,7 +183,7 @@ class FactRetriever:
         from .embeddings import bytes_to_vec, cosine
 
         conn = self.store._conn
-        where = "embedding IS NOT NULL AND trust_score >= ?"
+        where = "embedding IS NOT NULL AND trust_score >= ? AND superseded_by IS NULL"
         params: list = [min_trust]
         if category:
             where += " AND category = ?"
@@ -637,6 +637,8 @@ class FactRetriever:
 
         where_clauses.append("f.trust_score >= ?")
         params.append(min_trust)
+        # Superseded facts (retired by a newer, contradicting fact) never surface.
+        where_clauses.append("f.superseded_by IS NULL")
 
         where_sql = " AND ".join(where_clauses)
 

@@ -25,7 +25,9 @@ CREATE TABLE IF NOT EXISTS facts (
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     hrr_vector      BLOB,
-    embedding       BLOB
+    embedding       BLOB,
+    fact_type       TEXT DEFAULT 'episodic',
+    superseded_by   INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS entities (
@@ -186,6 +188,10 @@ class MemoryStore:
             self._conn.execute("ALTER TABLE facts ADD COLUMN hrr_vector BLOB")
         if "embedding" not in columns:
             self._conn.execute("ALTER TABLE facts ADD COLUMN embedding BLOB")
+        if "fact_type" not in columns:
+            self._conn.execute("ALTER TABLE facts ADD COLUMN fact_type TEXT DEFAULT 'episodic'")
+        if "superseded_by" not in columns:
+            self._conn.execute("ALTER TABLE facts ADD COLUMN superseded_by INTEGER")
         self._conn.commit()
 
     # ------------------------------------------------------------------
@@ -197,13 +203,17 @@ class MemoryStore:
         content: str,
         category: str = "general",
         tags: str = "",
+        fact_type: str = "episodic",
     ) -> int:
         """Insert a fact and return its fact_id.
 
         Deduplicates by content (UNIQUE constraint). On duplicate, returns
         the existing fact_id without modifying the row. Extracts entities from
-        the content and links them to the fact.
+        the content and links them to the fact. ``fact_type`` is "profile" for
+        durable identity/preferences (always surfaced, never decayed) or
+        "episodic" for everything else.
         """
+        fact_type = "profile" if fact_type == "profile" else "episodic"
         with self._lock:
             content = content.strip()
             if not content:
@@ -212,10 +222,10 @@ class MemoryStore:
             try:
                 cur = self._conn.execute(
                     """
-                    INSERT INTO facts (content, category, tags, trust_score)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO facts (content, category, tags, trust_score, fact_type)
+                    VALUES (?, ?, ?, ?, ?)
                     """,
-                    (content, category, tags, self.default_trust),
+                    (content, category, tags, self.default_trust, fact_type),
                 )
                 self._conn.commit()
                 fact_id: int = cur.lastrowid  # type: ignore[assignment]
@@ -278,6 +288,7 @@ class MemoryStore:
                 JOIN facts_fts fts ON fts.rowid = f.fact_id
                 WHERE facts_fts MATCH ?
                   AND f.trust_score >= ?
+                  AND f.superseded_by IS NULL
                   {category_clause}
                 ORDER BY fts.rank, f.trust_score DESC
                 LIMIT ?
@@ -404,9 +415,11 @@ class MemoryStore:
 
             sql = f"""
                 SELECT fact_id, content, category, tags, trust_score,
-                       retrieval_count, helpful_count, created_at, updated_at
+                       retrieval_count, helpful_count, created_at, updated_at,
+                       fact_type
                 FROM facts
                 WHERE trust_score >= ?
+                  AND superseded_by IS NULL
                   {category_clause}
                 ORDER BY trust_score DESC
                 LIMIT ?
@@ -454,6 +467,134 @@ class MemoryStore:
                 "new_trust":    new_trust,
                 "helpful_count": row["helpful_count"] + helpful_increment,
             }
+
+    # ------------------------------------------------------------------
+    # Consolidation / typed memory
+    # ------------------------------------------------------------------
+
+    def supersede_fact(self, old_id: int, new_id: int) -> bool:
+        """Mark ``old_id`` as superseded by ``new_id`` (reality changed).
+
+        A superseded fact is excluded from all retrieval but kept on disk for
+        audit/undo. Its trust is also dropped so any stale cached reference
+        deprioritizes it. Returns True if the old fact existed.
+        """
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT fact_id, category FROM facts WHERE fact_id = ?", (old_id,)
+            ).fetchone()
+            if row is None:
+                return False
+            self._conn.execute(
+                "UPDATE facts SET superseded_by = ?, trust_score = MIN(trust_score, 0.1), "
+                "updated_at = CURRENT_TIMESTAMP WHERE fact_id = ?",
+                (new_id, old_id),
+            )
+            self._conn.commit()
+            # Drop the retired fact out of its category's HRR bank.
+            self._rebuild_bank(row["category"])
+            return True
+
+    def list_profile_facts(self, limit: int = 30) -> list[dict]:
+        """Durable 'profile' facts, highest-trust first (for always-on context)."""
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT fact_id, content, category, tags, trust_score,
+                       retrieval_count, helpful_count, created_at, updated_at, fact_type
+                FROM facts
+                WHERE fact_type = 'profile' AND superseded_by IS NULL
+                ORDER BY trust_score DESC, updated_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return [self._row_to_dict(r) for r in rows]
+
+    def semantic_neighbors(
+        self, content: str, k: int = 5, min_sim: float = 0.80
+    ) -> list[dict]:
+        """Return the ``k`` most semantically-similar live facts to ``content``.
+
+        Powers consolidation: before adding a fact we check whether it
+        duplicates or updates an existing one. Requires an active embedder;
+        returns [] otherwise (callers then fall back to plain insert).
+        """
+        embedder = getattr(self, "embedder", None)
+        if embedder is None or not getattr(embedder, "enabled", False):
+            return []
+        try:
+            qvec = embedder.embed_one(content)
+        except Exception:
+            return []
+        if not qvec:
+            return []
+        from .embeddings import bytes_to_vec, cosine
+
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT fact_id, content, embedding FROM facts "
+                "WHERE embedding IS NOT NULL AND superseded_by IS NULL"
+            ).fetchall()
+        scored = []
+        for r in rows:
+            sim = cosine(qvec, bytes_to_vec(r["embedding"]))
+            if sim >= min_sim:
+                scored.append((sim, {"fact_id": r["fact_id"], "content": r["content"], "similarity": sim}))
+        scored.sort(key=lambda t: t[0], reverse=True)
+        return [d for _s, d in scored[:k]]
+
+    def add_fact_curated(
+        self,
+        content: str,
+        category: str = "general",
+        tags: str = "",
+        fact_type: str = "episodic",
+        reconciler: "object | None" = None,
+    ) -> dict:
+        """Add a fact with consolidation: dedup + supersede via ``reconciler``.
+
+        Checks semantically-similar existing facts and asks ``reconciler`` (a
+        ``MemoryLLM``-like object with ``.reconcile(new, candidates)``) whether
+        the new fact is a duplicate (skip), an update (supersede the target), or
+        independent (insert). Falls back to a plain insert when no embedder /
+        reconciler is available. Returns
+        ``{"action", "fact_id", "superseded": [ids]}``.
+        """
+        content = content.strip()
+        if not content:
+            raise ValueError("content must not be empty")
+
+        neighbors = self.semantic_neighbors(content, k=5, min_sim=0.82)
+
+        # Exact/near-exact duplicate short-circuit (no LLM needed).
+        for n in neighbors:
+            if n.get("similarity", 0.0) >= 0.985 or n["content"].strip().lower() == content.lower():
+                return {"action": "duplicate", "fact_id": n["fact_id"], "superseded": []}
+
+        decision = None
+        if neighbors and reconciler is not None and getattr(reconciler, "enabled", False):
+            try:
+                decision = reconciler.reconcile(content, neighbors)
+            except Exception:
+                decision = None
+
+        if decision and decision.get("action") == "duplicate":
+            target = decision.get("target_fact_id") or (neighbors[0]["fact_id"] if neighbors else None)
+            return {"action": "duplicate", "fact_id": target, "superseded": []}
+
+        # Insert the new fact.
+        new_id = self.add_fact(content, category=category, tags=tags, fact_type=fact_type)
+
+        superseded: list[int] = []
+        if decision and decision.get("action") == "update":
+            target = decision.get("target_fact_id")
+            valid_targets = {n["fact_id"] for n in neighbors}
+            if target in valid_targets and target != new_id:
+                if self.supersede_fact(target, new_id):
+                    superseded.append(target)
+
+        return {"action": "update" if superseded else "new", "fact_id": new_id, "superseded": superseded}
 
     # ------------------------------------------------------------------
     # Entity helpers

@@ -25,6 +25,14 @@ Config in $HERCULES_HOME/config.yaml (profile-scoped):
       embedding_dims: 1536
       embedding_base_url: ""          # e.g. a local vLLM/Ollama /v1 endpoint
       embedding_api_key_env: OPENAI_API_KEY
+      # LLM curation: salience extraction (clean atomic facts from a session),
+      # dedup + supersede-on-contradiction, and HyDE query expansion. Auto-
+      # enables like embeddings; omit to stay heuristic-only.
+      curation_enabled: true          # tri-state: omit = auto, false = force off
+      curation_model: gpt-4o-mini
+      curation_base_url: ""
+      curation_api_key_env: OPENAI_API_KEY
+      profile_inject_limit: 15        # durable 'profile' facts injected each turn
 """
 
 from __future__ import annotations
@@ -200,6 +208,19 @@ class HolographicMemoryProvider(MemoryProvider):
             logger.debug("holographic memory: embedder init skipped: %s", exc)
             embedder = None
 
+        # Optional curation LLM: salience extraction, dedup/supersede
+        # reconciliation, and HyDE query expansion. Graceful no-op when off.
+        self._llm = None
+        try:
+            from .llm import MemoryLLM
+
+            self._llm = MemoryLLM.from_config(self._config)
+            if getattr(self._llm, "enabled", False):
+                logger.info("holographic memory: LLM curation enabled (model=%s)", self._llm.model)
+        except Exception as exc:
+            logger.debug("holographic memory: LLM init skipped: %s", exc)
+            self._llm = None
+
         self._store = MemoryStore(
             db_path=db_path, default_trust=default_trust, hrr_dim=hrr_dim, embedder=embedder
         )
@@ -228,18 +249,47 @@ class HolographicMemoryProvider(MemoryProvider):
                 "Use fact_store(action='add') to store durable structured facts about people, projects, preferences, decisions.\n"
                 "Use fact_feedback to rate facts after using them (trains trust scores)."
             )
-        return (
+        block = (
             f"# Holographic Memory\n"
             f"Active. {total} facts stored with entity resolution and trust scoring.\n"
             f"Use fact_store to search, probe entities, reason across entities, or add facts.\n"
             f"Use fact_feedback to rate facts after using them (trains trust scores)."
         )
+        # Always-on durable context: 'profile' facts (identity, stable
+        # preferences) are injected every turn rather than waiting to be
+        # recalled, since they apply regardless of the current query.
+        try:
+            profile = self._store.list_profile_facts(limit=int(self._config.get("profile_inject_limit", 15)))
+        except Exception:
+            profile = []
+        if profile:
+            lines = "\n".join(f"- {p.get('content', '')}" for p in profile)
+            block += "\n\n## Known profile (durable)\n" + lines
+        return block
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         if not self._retriever or not query:
             return ""
         try:
             results = self._retriever.search(query, min_trust=self._min_trust, limit=5)
+            # HyDE: a vague message ("what did we decide?") often shares little
+            # with the stored fact. When curation is on, also search an
+            # LLM-rewritten query and merge, so recall doesn't hinge on phrasing.
+            llm = getattr(self, "_llm", None)
+            if llm is not None and getattr(llm, "enabled", False):
+                try:
+                    expanded = llm.expand_query(query)
+                except Exception:
+                    expanded = None
+                if expanded and expanded.strip().lower() != query.strip().lower():
+                    extra = self._retriever.search(expanded, min_trust=self._min_trust, limit=5)
+                    seen = {r.get("fact_id") for r in results}
+                    for r in extra:
+                        if r.get("fact_id") not in seen:
+                            seen.add(r.get("fact_id"))
+                            results.append(r)
+                    results.sort(key=lambda r: r.get("score", 0.0), reverse=True)
+                    results = results[:5]
             if not results:
                 return ""
             lines = []
@@ -306,12 +356,26 @@ class HolographicMemoryProvider(MemoryProvider):
             retriever = self._retriever
 
             if action == "add":
-                fact_id = store.add_fact(
+                # Curated add: semantic dedup + supersede-on-contradiction so
+                # the store self-maintains instead of accumulating duplicates
+                # and stale facts. Falls back to a plain insert when no
+                # embedder/LLM is available.
+                result = store.add_fact_curated(
                     args["content"],
                     category=args.get("category", "general"),
                     tags=args.get("tags", ""),
+                    fact_type=str(args.get("fact_type", "episodic")),
+                    reconciler=getattr(self, "_llm", None),
                 )
-                return json.dumps({"fact_id": fact_id, "status": "added"})
+                status = {
+                    "duplicate": "already_known",
+                    "update": "updated",
+                    "new": "added",
+                }.get(result["action"], "added")
+                out = {"fact_id": result["fact_id"], "status": status}
+                if result.get("superseded"):
+                    out["superseded"] = result["superseded"]
+                return json.dumps(out)
 
             elif action == "search":
                 results = retriever.search(
@@ -399,7 +463,55 @@ class HolographicMemoryProvider(MemoryProvider):
 
     # -- Auto-extraction (on_session_end) ------------------------------------
 
+    def _llm_extract_facts(self, messages: list, llm) -> bool:
+        """LLM salience extraction → curated writes. Returns True on success.
+
+        Builds a compact transcript, asks the LLM for durable atomic facts, and
+        stores each through ``add_fact_curated`` so extraction, dedup, and
+        supersede all compose. Returns False (caller falls back to regex) if the
+        LLM yields nothing usable.
+        """
+        try:
+            parts = []
+            for msg in messages:
+                role = msg.get("role")
+                content = msg.get("content", "")
+                if role in ("user", "assistant") and isinstance(content, str) and content.strip():
+                    parts.append(f"{role}: {content.strip()}")
+            if not parts:
+                return False
+            transcript = "\n".join(parts)[-6000:]
+            facts = llm.extract_facts(transcript)
+            if facts is None:
+                return False  # LLM unavailable/unparseable → let regex try
+            stored = 0
+            for f in facts:
+                try:
+                    res = self._store.add_fact_curated(
+                        f["content"],
+                        category=f.get("category", "general"),
+                        fact_type=f.get("fact_type", "episodic"),
+                        reconciler=llm,
+                    )
+                    if res.get("action") in ("new", "update"):
+                        stored += 1
+                except Exception:
+                    continue
+            logger.info("LLM salience: extracted %d facts (%d new/updated)", len(facts), stored)
+            return True
+        except Exception as exc:
+            logger.debug("LLM salience extraction failed: %s", exc)
+            return False
+
     def _auto_extract_facts(self, messages: list) -> None:
+        # Preferred path: LLM-gated salience extraction — clean, atomic,
+        # typed facts curated into the store (dedup + supersede). Falls back to
+        # the regex heuristics below when no curation LLM is configured.
+        llm = getattr(self, "_llm", None)
+        if llm is not None and getattr(llm, "enabled", False):
+            if self._llm_extract_facts(messages, llm):
+                return
+
         _PREF_PATTERNS = [
             re.compile(r'\bI\s+(?:prefer|like|love|use|want|need)\s+(.+)', re.IGNORECASE),
             re.compile(r'\bmy\s+(?:favorite|preferred|default)\s+\w+\s+is\s+(.+)', re.IGNORECASE),
