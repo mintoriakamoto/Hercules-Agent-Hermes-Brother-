@@ -5,6 +5,10 @@ with entity resolution, trust scoring, and HRR-based compositional retrieval.
 
 Original plugin by dusterbloom (PR #2351), adapted to the MemoryProvider ABC.
 
+Retrieval blends four signals — FTS5 keyword match, Jaccard token overlap,
+HRR compositional structure, and (when enabled) dense semantic embeddings —
+weighted by trust and gently decayed by recency.
+
 Config in $HERCULES_HOME/config.yaml (profile-scoped):
   plugins:
     hercules-memory-store:
@@ -12,7 +16,15 @@ Config in $HERCULES_HOME/config.yaml (profile-scoped):
       auto_extract: false
       default_trust: 0.5
       min_trust_threshold: 0.3
-      temporal_decay_half_life: 0
+      temporal_decay_half_life: 180   # days; 0 disables recency decay
+      # Semantic embeddings (meaning-based recall, not just keywords). Auto-
+      # enables when embedding_api_key_env / a base_url is set, or when
+      # OPENAI_API_KEY is present. Omit everything to stay lexical-only.
+      embedding_enabled: true         # tri-state: omit = auto, false = force off
+      embedding_model: text-embedding-3-small
+      embedding_dims: 1536
+      embedding_base_url: ""          # e.g. a local vLLM/Ollama /v1 endpoint
+      embedding_api_key_env: OPENAI_API_KEY
 """
 
 from __future__ import annotations
@@ -169,14 +181,34 @@ class HolographicMemoryProvider(MemoryProvider):
         default_trust = float(self._config.get("default_trust", 0.5))
         hrr_dim = int(self._config.get("hrr_dim", 1024))
         hrr_weight = float(self._config.get("hrr_weight", 0.3))
-        temporal_decay = int(self._config.get("temporal_decay_half_life", 0))
+        # Recency: gentle temporal decay so stale facts fade below fresh ones.
+        # Default 180-day half-life (was 0/off) — old but still-trusted facts
+        # keep ~70% weight after a year, so nothing is lost, just deprioritized.
+        temporal_decay = int(self._config.get("temporal_decay_half_life", 180))
 
-        self._store = MemoryStore(db_path=db_path, default_trust=default_trust, hrr_dim=hrr_dim)
+        # Optional semantic embedder (auto-enables when an embedding backend is
+        # configured or OPENAI_API_KEY is present; graceful lexical fallback
+        # otherwise). Turns retrieval from keyword-match into meaning-match.
+        embedder = None
+        try:
+            from .embeddings import Embedder
+
+            embedder = Embedder.from_config(self._config)
+            if getattr(embedder, "enabled", False):
+                logger.info("holographic memory: semantic embeddings enabled (model=%s)", embedder.model)
+        except Exception as exc:
+            logger.debug("holographic memory: embedder init skipped: %s", exc)
+            embedder = None
+
+        self._store = MemoryStore(
+            db_path=db_path, default_trust=default_trust, hrr_dim=hrr_dim, embedder=embedder
+        )
         self._retriever = FactRetriever(
             store=self._store,
             temporal_decay_half_life=temporal_decay,
             hrr_weight=hrr_weight,
             hrr_dim=hrr_dim,
+            embedder=embedder,
         )
         self._session_id = session_id
 

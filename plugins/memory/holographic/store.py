@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS facts (
     helpful_count   INTEGER DEFAULT 0,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    hrr_vector      BLOB
+    hrr_vector      BLOB,
+    embedding       BLOB
 );
 
 CREATE TABLE IF NOT EXISTS entities (
@@ -118,6 +119,7 @@ class MemoryStore:
         db_path: "str | Path | None" = None,
         default_trust: float = 0.5,
         hrr_dim: int = 1024,
+        embedder: "object | None" = None,
     ) -> None:
         if db_path is None:
             from hercules_constants import get_hercules_home
@@ -127,6 +129,9 @@ class MemoryStore:
         self.default_trust = _clamp_trust(default_trust)
         self.hrr_dim = hrr_dim
         self._hrr_available = hrr._HAS_NUMPY
+        # Optional semantic embedder. When None/disabled, the store behaves
+        # exactly as before (lexical + HRR only).
+        self.embedder = embedder
 
         # Acquire (or open) the process-wide shared connection for this DB.
         # resolve() (not just expanduser) so symlinked/relative paths to the
@@ -175,10 +180,12 @@ class MemoryStore:
         from hercules_state import apply_wal_with_fallback
         apply_wal_with_fallback(self._conn, db_label="memory_store.db (holographic)")
         self._conn.executescript(_SCHEMA)
-        # Migrate: add hrr_vector column if missing (safe for existing databases)
+        # Migrate: add newer columns if missing (safe for existing databases).
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(facts)").fetchall()}
         if "hrr_vector" not in columns:
             self._conn.execute("ALTER TABLE facts ADD COLUMN hrr_vector BLOB")
+        if "embedding" not in columns:
+            self._conn.execute("ALTER TABLE facts ADD COLUMN embedding BLOB")
         self._conn.commit()
 
     # ------------------------------------------------------------------
@@ -226,6 +233,8 @@ class MemoryStore:
 
             # Compute HRR vector after entity linking
             self._compute_hrr_vector(fact_id, content)
+            # Compute the semantic embedding (no-op when no embedder).
+            self._compute_embedding(fact_id, content)
             self._rebuild_bank(category)
 
             return fact_id
@@ -343,9 +352,10 @@ class MemoryStore:
                     self._link_fact_entity(fact_id, entity_id)
                 self._conn.commit()
 
-            # Recompute HRR vector if content changed
+            # Recompute HRR vector + semantic embedding if content changed
             if content is not None:
                 self._compute_hrr_vector(fact_id, content)
+                self._compute_embedding(fact_id, content)
             # Rebuild the bank for the fact's (possibly new) category. When the
             # category changed, the OLD category's bank must also be rebuilt —
             # otherwise it keeps this fact's vector even though the fact no
@@ -489,20 +499,27 @@ class MemoryStore:
 
         Returns the entity_id.
         """
-        # Exact name match
+        # Exact (case-insensitive) name match. Use `= ? COLLATE NOCASE`, not
+        # LIKE: a LIKE pattern lets `%`/`_` in an extracted entity name (e.g. a
+        # quoted "100%") wildcard-match unrelated entities, silently merging
+        # distinct entities and corrupting the fact→entity graph.
         row = self._conn.execute(
-            "SELECT entity_id FROM entities WHERE name LIKE ?", (name,)
+            "SELECT entity_id FROM entities WHERE name = ? COLLATE NOCASE", (name,)
         ).fetchone()
         if row is not None:
             return int(row["entity_id"])
 
-        # Search aliases — aliases stored as comma-separated; use LIKE with % boundaries
+        # Search aliases — stored comma-separated; a LIKE membership check
+        # against ',<aliases>,'. Escape LIKE metacharacters in `name` (and add
+        # ESCAPE) so a name containing `%`/`_` matches literally instead of as
+        # a wildcard.
+        safe_name = name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         alias_row = self._conn.execute(
-            """
+            r"""
             SELECT entity_id FROM entities
-            WHERE ',' || aliases || ',' LIKE '%,' || ? || ',%'
+            WHERE ',' || aliases || ',' LIKE '%,' || ? || ',%' ESCAPE '\'
             """,
-            (name,),
+            (safe_name,),
         ).fetchone()
         if alias_row is not None:
             return int(alias_row["entity_id"])
@@ -546,6 +563,31 @@ class MemoryStore:
             self._conn.execute(
                 "UPDATE facts SET hrr_vector = ? WHERE fact_id = ?",
                 (hrr.phases_to_bytes(vector), fact_id),
+            )
+            self._conn.commit()
+
+    def _compute_embedding(self, fact_id: int, content: str) -> None:
+        """Compute and store the semantic embedding for a fact.
+
+        No-op when no embedder is configured or the backend is unavailable —
+        the fact simply has a NULL embedding and retrieval falls back to the
+        lexical + HRR signals for it.
+        """
+        embedder = getattr(self, "embedder", None)
+        if embedder is None or not getattr(embedder, "enabled", False):
+            return
+        try:
+            vec = embedder.embed_one(content)
+        except Exception:
+            return
+        if not vec:
+            return
+        from .embeddings import vec_to_bytes
+
+        with self._lock:
+            self._conn.execute(
+                "UPDATE facts SET embedding = ? WHERE fact_id = ?",
+                (vec_to_bytes(vec), fact_id),
             )
             self._conn.commit()
 

@@ -30,10 +30,13 @@ class FactRetriever:
         jaccard_weight: float = 0.3,
         hrr_weight: float = 0.3,
         hrr_dim: int = 1024,
+        embedder: "object | None" = None,
+        embedding_weight: float = 0.0,
     ):
         self.store = store
         self.half_life = temporal_decay_half_life
         self.hrr_dim = hrr_dim
+        self.embedder = embedder
 
         # Auto-redistribute weights if numpy unavailable
         if hrr_weight > 0 and not hrr._HAS_NUMPY:
@@ -41,9 +44,20 @@ class FactRetriever:
             jaccard_weight = 0.4
             hrr_weight = 0.0
 
+        # When a semantic embedder is active, let meaning dominate: the lexical
+        # signals (FTS5, Jaccard) and structural HRR become supporting signals
+        # while cosine similarity over dense embeddings does the heavy lifting.
+        # Falls back to the historical lexical+HRR blend when embeddings are off.
+        self._semantic = bool(embedder is not None and getattr(embedder, "enabled", False))
+        if self._semantic and embedding_weight <= 0.0:
+            fts_weight, jaccard_weight, hrr_weight, embedding_weight = 0.25, 0.15, 0.15, 0.45
+            if not hrr._HAS_NUMPY:
+                fts_weight, jaccard_weight, hrr_weight, embedding_weight = 0.30, 0.20, 0.0, 0.50
+
         self.fts_weight = fts_weight
         self.jaccard_weight = jaccard_weight
         self.hrr_weight = hrr_weight
+        self.embedding_weight = embedding_weight
 
     def search(
         self,
@@ -62,17 +76,35 @@ class FactRetriever:
 
         Returns list of dicts with fact data + 'score' field, sorted by score desc.
         """
-        # Stage 1: Get FTS5 candidates (more than limit for reranking headroom)
+        # Semantic query embedding, computed at most once and reused for both
+        # candidate recall and reranking. None when the embedder is off or the
+        # backend fails mid-query (graceful lexical fallback).
+        query_emb = None
+        if self._semantic:
+            try:
+                query_emb = self.embedder.embed_one(query)  # type: ignore[union-attr]
+            except Exception:
+                query_emb = None
+
+        # Stage 1: candidate recall. FTS5 keyword hits UNION semantic (embedding
+        # cosine) hits, so a fact whose meaning matches but shares no keywords
+        # still surfaces — the union is what turns embeddings from a reranker
+        # into a genuine recall upgrade.
         candidates = self._fts_candidates(query, category, min_trust, limit * 3)
+        if query_emb:
+            candidates = self._union_candidates(
+                candidates,
+                self._semantic_candidates(query_emb, category, min_trust, limit * 3),
+            )
 
         if not candidates:
             return []
 
-        # Stage 2: Rerank with Jaccard + trust + optional decay
+        # Stage 2: Rerank with Jaccard + semantic + trust + optional decay
         query_tokens = self._tokenize(query)
-        # Encode the query vector at most once, lazily — it is invariant across
-        # candidates and encode_text() is SHA-256-heavy. Stays None (never
-        # computed) when HRR is disabled or no candidate carries a vector.
+        # Encode the HRR query vector at most once, lazily — it is invariant
+        # across candidates and encode_text() is SHA-256-heavy. Stays None
+        # (never computed) when HRR is disabled or no candidate carries a vector.
         query_vec = None
         scored = []
 
@@ -93,10 +125,21 @@ class FactRetriever:
             else:
                 hrr_sim = 0.5  # neutral
 
-            # Combine FTS5 + Jaccard + HRR
+            # Semantic (dense embedding) cosine similarity, shifted to [0,1].
+            # Neutral 0.5 when either side lacks an embedding, so a fact without
+            # one ranks on its lexical signals rather than being penalized.
+            if self.embedding_weight > 0 and query_emb and fact.get("embedding"):
+                from .embeddings import bytes_to_vec, cosine
+
+                emb_sim = (cosine(query_emb, bytes_to_vec(fact["embedding"])) + 1.0) / 2.0
+            else:
+                emb_sim = 0.5  # neutral
+
+            # Combine FTS5 + Jaccard + HRR + semantic
             relevance = (self.fts_weight * fts_score
                         + self.jaccard_weight * jaccard
-                        + self.hrr_weight * hrr_sim)
+                        + self.hrr_weight * hrr_sim
+                        + self.embedding_weight * emb_sim)
 
             # Trust weighting
             score = relevance * fact["trust_score"]
@@ -111,10 +154,90 @@ class FactRetriever:
         # Sort by score descending, return top limit
         scored.sort(key=lambda x: x["score"], reverse=True)
         results = scored[:limit]
-        # Strip raw HRR bytes — callers expect JSON-serializable dicts
+        # Record that these facts surfaced (usage stats). The hybrid retriever
+        # path bypassed store.search_facts, so retrieval_count never advanced
+        # here before — now trust reinforcement and never-used pruning have the
+        # signal they need.
+        self._record_retrievals([r["fact_id"] for r in results])
+        # Strip raw vector bytes — callers expect JSON-serializable dicts
         for fact in results:
             fact.pop("hrr_vector", None)
+            fact.pop("embedding", None)
         return results
+
+    def _semantic_candidates(
+        self,
+        query_emb: list,
+        category: str | None,
+        min_trust: float,
+        limit: int,
+    ) -> list[dict]:
+        """Recall facts by embedding cosine similarity (keyword-independent).
+
+        Brute-force scan of facts that carry an embedding — fine for a personal
+        memory store (hundreds–low thousands of facts); a vector index is the
+        upgrade path if a store ever grows past that. Returns candidate dicts in
+        the same shape as ``_fts_candidates`` (``fts_rank`` = 0.0, since these
+        did not come from FTS5), pre-scored highest-cosine-first.
+        """
+        from .embeddings import bytes_to_vec, cosine
+
+        conn = self.store._conn
+        where = "embedding IS NOT NULL AND trust_score >= ?"
+        params: list = [min_trust]
+        if category:
+            where += " AND category = ?"
+            params.append(category)
+        try:
+            with self.store._lock:
+                rows = conn.execute(
+                    f"SELECT * FROM facts WHERE {where}", params
+                ).fetchall()
+        except Exception:
+            return []
+
+        scored: list[tuple[float, dict]] = []
+        for row in rows:
+            fact = dict(row)
+            emb = fact.get("embedding")
+            if not emb:
+                continue
+            sim = cosine(query_emb, bytes_to_vec(emb))
+            fact["fts_rank"] = 0.0
+            scored.append((sim, fact))
+        scored.sort(key=lambda t: t[0], reverse=True)
+        return [fact for _sim, fact in scored[:limit]]
+
+    @staticmethod
+    def _union_candidates(primary: list[dict], extra: list[dict]) -> list[dict]:
+        """Merge two candidate lists, deduping by fact_id (primary wins).
+
+        Primary (FTS5) entries keep their real ``fts_rank``; only genuinely new
+        facts from ``extra`` (semantic-only recall) are appended.
+        """
+        seen = {f["fact_id"] for f in primary}
+        merged = list(primary)
+        for f in extra:
+            if f["fact_id"] not in seen:
+                seen.add(f["fact_id"])
+                merged.append(f)
+        return merged
+
+    def _record_retrievals(self, fact_ids: list) -> None:
+        """Increment retrieval_count for the facts that surfaced. Best-effort."""
+        if not fact_ids:
+            return
+        try:
+            with self.store._lock:
+                placeholders = ",".join("?" * len(fact_ids))
+                self.store._conn.execute(
+                    f"UPDATE facts SET retrieval_count = retrieval_count + 1 "
+                    f"WHERE fact_id IN ({placeholders})",
+                    fact_ids,
+                )
+                self.store._conn.commit()
+        except Exception:
+            pass
 
     def probe(
         self,
