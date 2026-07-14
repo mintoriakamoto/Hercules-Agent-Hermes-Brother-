@@ -9,16 +9,8 @@ import hercules_cli.inventory as inv
 import hercules_cli.models as models_mod
 
 
-def _patch_pricing(monkeypatch, *, free_tier, pricing, unavailable=None):
+def _patch_pricing(monkeypatch, *, free_tier=False, pricing, unavailable=None):
     monkeypatch.setattr(models_mod, "get_pricing_for_provider", lambda slug, **kw: pricing.get(slug, {}))
-    monkeypatch.setattr(models_mod, "check_nous_free_tier", lambda *, force_fresh=False: free_tier)
-    monkeypatch.setattr(
-        models_mod, "partition_nous_models_by_tier",
-        lambda ids, pr, free_tier: (
-            [m for m in ids if m not in (unavailable or [])],
-            list(unavailable or []),
-        ),
-    )
 
 
 def test_apply_pricing_formats_per_model_prices(monkeypatch):
@@ -40,41 +32,6 @@ def test_apply_pricing_formats_per_model_prices(monkeypatch):
     assert pricing["a/paid"] == {"input": "$3.00", "output": "$15.00", "cache": "$0.30", "free": False}
     assert pricing["b/free"]["free"] is True
     assert pricing["b/free"]["input"] == "free"
-
-
-def test_apply_pricing_nous_free_tier_gates_paid_models(monkeypatch):
-    """A free-tier Nous account marks paid models unavailable and sets the flag."""
-    _patch_pricing(
-        monkeypatch,
-        free_tier=True,
-        pricing={
-            "nous": {
-                "free/model": {"prompt": "0", "completion": "0"},
-                "paid/model": {"prompt": "0.000005", "completion": "0.00001"},
-            }
-        },
-        unavailable=["paid/model"],
-    )
-    rows = [{"slug": "nous", "models": ["free/model", "paid/model"]}]
-    inv._apply_pricing(rows)
-
-    assert rows[0]["free_tier"] is True
-    assert rows[0]["unavailable_models"] == ["paid/model"]
-    assert rows[0]["pricing"]["free/model"]["free"] is True
-
-
-def test_apply_pricing_nous_paid_tier_no_gating(monkeypatch):
-    """A paid Nous account gates nothing."""
-    _patch_pricing(
-        monkeypatch,
-        free_tier=False,
-        pricing={"nous": {"x/model": {"prompt": "0.000001", "completion": "0.000002"}}},
-    )
-    rows = [{"slug": "nous", "models": ["x/model"]}]
-    inv._apply_pricing(rows)
-
-    assert rows[0]["free_tier"] is False
-    assert rows[0]["unavailable_models"] == []
 
 
 def test_apply_pricing_skips_providers_without_pricing(monkeypatch):

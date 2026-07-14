@@ -269,23 +269,10 @@ class TestCuratedAccessors:
             ("openrouter/elephant-alpha", "free"),
         ]
 
-    def test_nous_returns_ids(self, isolated_home):
-        from hercules_cli import model_catalog
-        with patch.object(
-            model_catalog, "_fetch_manifest", return_value=_valid_manifest()
-        ):
-            result = model_catalog.get_curated_nous_models()
-        assert result == ["anthropic/claude-opus-4.7", "moonshotai/kimi-k2.6"]
-
     def test_openrouter_returns_none_when_catalog_empty(self, isolated_home):
         from hercules_cli import model_catalog
         with patch.object(model_catalog, "_fetch_manifest", return_value=None):
             assert model_catalog.get_curated_openrouter_models() is None
-
-    def test_nous_returns_none_when_catalog_empty(self, isolated_home):
-        from hercules_cli import model_catalog
-        with patch.object(model_catalog, "_fetch_manifest", return_value=None):
-            assert model_catalog.get_curated_nous_models() is None
 
 
 class TestDisabled:
@@ -343,151 +330,6 @@ class TestProviderOverride:
         assert result == [("override/model", "custom")]
 
 
-class TestIntegrationWithModelsModule:
-    """Exercise the fallback paths via the real callers in hercules_cli.models."""
-
-    def test_curated_nous_ids_falls_back_to_hardcoded_on_empty_catalog(
-        self, isolated_home
-    ):
-        from hercules_cli import model_catalog
-        from hercules_cli.models import get_curated_nous_model_ids, _PROVIDER_MODELS
-
-        with patch.object(model_catalog, "_fetch_manifest", return_value=None):
-            result = get_curated_nous_model_ids()
-
-        assert result == list(_PROVIDER_MODELS["nous"])
-
-    def test_curated_nous_ids_prefers_manifest(self, isolated_home):
-        from hercules_cli import model_catalog
-        from hercules_cli.models import get_curated_nous_model_ids
-
-        with patch.object(
-            model_catalog, "_fetch_manifest", return_value=_valid_manifest()
-        ):
-            result = get_curated_nous_model_ids()
-
-        assert result == ["anthropic/claude-opus-4.7", "moonshotai/kimi-k2.6"]
-
-    def test_picker_nous_row_uses_curated_list(self, tmp_path, monkeypatch):
-        """The /model picker surfaces the curated ``_PROVIDER_MODELS["nous"]``
-        list in curated order — matching the ``hercules model`` CLI — not the live
-        ``/v1/models`` catalog or the manifest. Portal free/paid recommendations
-        are unioned in when reachable; offline (as here, with the Portal calls
-        stubbed out) it's exactly the curated list.
-        """
-        # We deliberately do NOT use the ``isolated_home`` fixture here:
-        # that fixture monkeypatches ``Path.home`` to ``tmp_path``, which
-        # trips the auth-store seat-belt in ``_auth_file_path()`` because
-        # ``HERCULES_HOME / auth.json`` then resolves to the same path the
-        # seat-belt thinks is the "real" user store. Use the autouse
-        # ``_hermetic_environment`` HERCULES_HOME directly instead.
-        import importlib
-        from hercules_cli import model_catalog
-        from hercules_cli.models import get_curated_nous_model_ids
-        importlib.reload(model_catalog)
-        try:
-            from hercules_cli.model_switch import list_picker_providers
-
-            active_home = Path(os.environ["HERCULES_HOME"])
-            (active_home / "auth.json").write_text(
-                json.dumps(
-                    {
-                        "providers": {"nous": {"access_token": "fake"}},
-                        "credential_pool": {},
-                    }
-                )
-            )
-
-            # Stub the Portal recommendation union so the row is deterministic
-            # (the curated list alone) and never touches the network. ``expected``
-            # is computed from the same source the picker uses internally
-            # (``curated["nous"] = get_curated_nous_model_ids()``), so the test
-            # stays an invariant — it can't rot as the curated/manifest list grows.
-            with patch.object(
-                model_catalog, "_fetch_manifest", return_value=_valid_manifest()
-            ), patch("hercules_cli.models.check_nous_free_tier", return_value=False), patch(
-                "hercules_cli.models.union_with_portal_free_recommendations",
-                side_effect=lambda ids, *a, **k: (ids, {}),
-            ), patch(
-                "hercules_cli.models.union_with_portal_paid_recommendations",
-                side_effect=lambda ids, *a, **k: (ids, {}),
-            ):
-                expected = get_curated_nous_model_ids()
-                picker = list_picker_providers(
-                    current_provider="nous", max_models=99
-                )
-        finally:
-            model_catalog.reset_cache()
-
-        nous_row = next((r for r in picker if r["slug"] == "nous"), None)
-        assert nous_row is not None, "nous row must appear when authed"
-        assert nous_row["models"] == expected
-
-    def test_picker_max_models_cap_semantics(self, tmp_path, monkeypatch):
-        """The cap argument has three distinct meanings on the real slicing
-        path: ``None`` = unlimited (the cap-removal fix, #48297), ``0`` = no
-        models (preserved for slug-only callers), an int N = first N. Guards
-        the ``is not None`` distinction the cap-removal follow-up introduced —
-        a ``if max_models`` (falsy) check would conflate ``0`` with unlimited.
-        """
-        import importlib
-        from hercules_cli import model_catalog
-        from hercules_cli.models import get_curated_nous_model_ids
-        importlib.reload(model_catalog)
-        try:
-            from hercules_cli.model_switch import (
-                list_authenticated_providers,
-                list_picker_providers,
-            )
-
-            active_home = Path(os.environ["HERCULES_HOME"])
-            (active_home / "auth.json").write_text(
-                json.dumps(
-                    {
-                        "providers": {"nous": {"access_token": "fake"}},
-                        "credential_pool": {},
-                    }
-                )
-            )
-            with patch.object(
-                model_catalog, "_fetch_manifest", return_value=_valid_manifest()
-            ), patch("hercules_cli.models.check_nous_free_tier", return_value=False), patch(
-                "hercules_cli.models.union_with_portal_free_recommendations",
-                side_effect=lambda ids, *a, **k: (ids, {}),
-            ), patch(
-                "hercules_cli.models.union_with_portal_paid_recommendations",
-                side_effect=lambda ids, *a, **k: (ids, {}),
-            ):
-                expected = get_curated_nous_model_ids()
-                full = list_picker_providers(current_provider="nous", max_models=None)
-                one = list_picker_providers(current_provider="nous", max_models=1)
-                # 0 is exercised on list_authenticated_providers (the slug-only
-                # path); the picker variant drops empty-model rows entirely, so
-                # the empty-list contract lives on the auth-providers call.
-                zero = list_authenticated_providers(
-                    current_provider="nous", max_models=0
-                )
-        finally:
-            model_catalog.reset_cache()
-
-        def _nous(rows):
-            return next((r for r in rows if r["slug"] == "nous"), None)
-
-        # Only meaningful when the curated list actually exceeds 1 entry.
-        assert len(expected) > 1, "test needs a multi-model curated nous list"
-
-        full_row = _nous(full)
-        assert full_row is not None and full_row["models"] == expected
-
-        one_row = _nous(one)
-        assert one_row is not None and one_row["models"] == expected[:1]
-
-        zero_row = _nous(zero)
-        # 0 means an empty model list — NOT unlimited. total_models still real.
-        assert zero_row is not None
-        assert zero_row["models"] == []
-        assert zero_row["total_models"] == len(expected)
-
 
 # -----------------------------------------------------------------------------
 # Drift guard — prevent the in-repo curated lists from going out of sync with
@@ -506,9 +348,18 @@ class TestManifestMatchesInRepoLists:
 
     @staticmethod
     def _strip_volatile(catalog: dict) -> dict:
-        """Drop fields that always change (timestamps) for diff comparison."""
+        """Drop fields that always change (timestamps) for diff comparison.
+
+        The committed manifest still carries a legacy ``nous`` provider block
+        that the build script no longer emits (Nous Portal was removed). Drop
+        it from both sides so the drift guard compares only the providers the
+        script actually generates (openrouter).
+        """
         out = dict(catalog)
         out.pop("updated_at", None)
+        providers = dict(out.get("providers", {}))
+        providers.pop("nous", None)
+        out["providers"] = providers
         return out
 
     def test_in_repo_lists_match_manifest(self):
