@@ -71,14 +71,15 @@ hercules config set     # Set individual config values
 hercules setup          # Or run the full setup wizard to configure everything at once
 ```
 
-:::tip Fastest path: Nous Portal
-One subscription covers 300+ models plus the [Tool Gateway](/user-guide/features/tool-gateway) (web search, image generation, TTS, cloud browser). Skip the per-tool key juggling:
+:::tip Fastest path: OpenRouter
+A single `OPENROUTER_API_KEY` covers 300+ models and is the recommended default. Skip the per-provider key juggling:
 
 ```bash
-hercules setup --portal
+echo 'OPENROUTER_API_KEY=sk-or-...' >> ~/.hercules/.env
+hercules model
 ```
 
-That logs you in, sets Nous as your provider, and turns on the Tool Gateway in one command.
+Add the key, then pick a model — see [OpenRouter](/integrations/providers#openrouter).
 :::
 
 ---

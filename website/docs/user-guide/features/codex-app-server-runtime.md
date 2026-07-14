@@ -10,7 +10,7 @@ Hercules can optionally hand `openai/*` and `openai-codex/*` turns to the [Codex
 This is **opt-in only**. Default Hercules behavior is unchanged unless you flip the flag. Hercules never auto-routes you onto this runtime.
 
 :::tip
-Not using OpenAI Codex? `hercules setup --portal` configures a non-Codex backend with Claude/Gemini/etc. in one step. See [Nous Portal](/integrations/nous-portal).
+Not using OpenAI Codex? Add an `OPENROUTER_API_KEY` to `~/.hercules/.env` and run `hercules model` to configure a non-Codex backend with Claude/Gemini/etc. See [OpenRouter](/integrations/providers#openrouter).
 :::
 
 ## Why

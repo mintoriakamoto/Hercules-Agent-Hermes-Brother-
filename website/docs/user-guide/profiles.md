@@ -25,7 +25,7 @@ That's it. `coder` is now its own Hercules profile with its own config, memory, 
 ## Creating a profile
 
 :::tip
-Quickest setup: run `hercules setup --portal` inside the new profile to wire up models + tools at once. See [Nous Portal](/integrations/nous-portal).
+Quickest setup: add an `OPENROUTER_API_KEY` to the profile's `.env` and run `hercules model` to pick a model. See [OpenRouter](/integrations/providers#openrouter).
 :::
 
 ### Blank profile

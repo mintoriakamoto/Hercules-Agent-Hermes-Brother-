@@ -40,7 +40,7 @@ docker run -it --rm \
 This drops you into the setup wizard, which will prompt you for your API keys and write them to `~/.hercules/.env`. You only need to do this once. It is highly recommended to set up a chat system for the gateway to work with at this point.
 
 :::tip
-Inside the container, run `hercules setup --portal` once — the refresh token persists in the mounted `~/.hercules` volume. See [Nous Portal](/integrations/nous-portal).
+Inside the container, add an `OPENROUTER_API_KEY` to `~/.hercules/.env` — it persists in the mounted `~/.hercules` volume. See [OpenRouter](/integrations/providers#openrouter).
 :::
 
 ## Running in gateway mode

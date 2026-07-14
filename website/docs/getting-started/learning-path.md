@@ -13,7 +13,7 @@ If you haven't installed Hercules Agent yet, begin with the [Installation guide]
 :::
 
 :::tip First-time provider setup
-First-time users almost always want `hercules setup --portal` — one OAuth covers a model plus the four Tool Gateway tools (search/image/TTS/browser). See [Nous Portal](/integrations/nous-portal).
+First-time users almost always want OpenRouter — a single `OPENROUTER_API_KEY` covers 300+ models. Add it to `~/.hercules/.env` and run `hercules model` to pick one. See [OpenRouter](/integrations/providers#openrouter).
 :::
 
 ## How to Use This Page

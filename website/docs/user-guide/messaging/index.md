@@ -11,7 +11,7 @@ Chat with Hercules from Telegram, Discord, Slack, WhatsApp, Signal, SMS, Email, 
 For the full voice feature set — including CLI microphone mode, spoken replies in messaging, and Discord voice-channel conversations — see [Voice Mode](/user-guide/features/voice-mode) and [Use Voice Mode with Hercules](/guides/use-voice-mode-with-hercules).
 
 :::tip
-Bots need both a model provider and tool providers (TTS, web). A [Nous Portal](/integrations/nous-portal) subscription bundles all of them.
+Bots need both a model provider and tool providers (TTS, web). Start with [OpenRouter](/integrations/providers#openrouter) for the model, then configure tools via the [Tool Gateway](/user-guide/features/tool-gateway).
 :::
 
 ## Platform Comparison

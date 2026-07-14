@@ -9,7 +9,7 @@ description: "Configure Hercules Agent — config.yaml, providers, models, API k
 All settings are stored in the `~/.hercules/` directory for easy access.
 
 :::tip Easiest path to a working `config.yaml`
-Run `hercules setup --portal` — one OAuth gets you a model provider and all four Tool Gateway tools without hand-editing YAML. Portal subscribers also get 10% off token-billed providers. See [Nous Portal](/integrations/nous-portal).
+Add an `OPENROUTER_API_KEY` to `~/.hercules/.env` and run `hercules model` — a single API key gets you 300+ models without hand-editing YAML. See [OpenRouter](/integrations/providers#openrouter).
 :::
 
 ## Directory Structure

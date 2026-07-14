@@ -11,7 +11,7 @@ In this tutorial, you'll build a personal briefing bot that wakes up every morni
 By the end, you'll have a fully automated workflow combining **web search**, **cron scheduling**, **delegation**, and **messaging delivery** — no code required.
 
 :::tip
-This recipe hits web search, summarization, and optional TTS — all bundled in a Portal subscription. The fastest setup is `hercules setup --portal`. See [Nous Portal](/integrations/nous-portal).
+This recipe hits web search, summarization, and optional TTS. The fastest model setup is an `OPENROUTER_API_KEY` in `~/.hercules/.env` plus `hercules model`. See [OpenRouter](/integrations/providers#openrouter).
 :::
 
 ## What We're Building

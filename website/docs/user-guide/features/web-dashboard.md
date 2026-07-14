@@ -9,7 +9,7 @@ description: "Browser-based administration panel for managing configuration, API
 The web dashboard is a browser-based UI for managing your Hercules Agent installation. Instead of editing YAML files or running CLI commands, you can configure settings, manage API keys, and monitor sessions from a clean web interface.
 
 :::tip
-Hosted-mode auth uses Nous Portal OAuth; if you also want the dashboard to talk to a real backend, `hercules setup --portal` wires up the model and tool gateway too. See [Nous Portal](/integrations/nous-portal).
+To have the dashboard talk to a real backend, configure a model provider first — the quickest path is adding an `OPENROUTER_API_KEY` to `~/.hercules/.env` and running `hercules model`. See [OpenRouter](/integrations/providers#openrouter).
 :::
 
 ## Quick Start

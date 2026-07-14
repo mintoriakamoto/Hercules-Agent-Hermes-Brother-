@@ -118,6 +118,5 @@ Already set up with another model?
 ## See also
 
 - **[Desktop App](/user-guide/desktop)** — The native one-click app (macOS, Windows, Linux)
-- **[Run Hercules Agent with Nous Portal](/guides/run-hercules-with-nous-portal)** — Full Portal walkthrough: models, Tool Gateway, and verification
-- **[Nous Portal integration](/integrations/nous-portal)** — What's in the subscription
+- **[AI Providers](/integrations/providers)** — Set up OpenRouter and other model providers
 - **[Quickstart](/getting-started/quickstart)** — Install-to-chat in under 5 minutes

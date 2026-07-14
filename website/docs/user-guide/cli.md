@@ -9,7 +9,7 @@ description: "Master the Hercules Agent terminal interface — commands, keybind
 Hercules Agent's CLI is a full terminal user interface (TUI) — not a web UI. It features multiline editing, slash-command autocomplete, conversation history, interrupt-and-redirect, and streaming tool output. Built for people who live in the terminal.
 
 :::tip First-time setup
-One command — `hercules setup --portal` — and you're ready to `hercules chat`. See [Nous Portal](/integrations/nous-portal).
+Add an `OPENROUTER_API_KEY` to `~/.hercules/.env`, run `hercules model` to pick a model, and you're ready to `hercules chat`. See [OpenRouter](/integrations/providers#openrouter).
 :::
 
 :::tip
