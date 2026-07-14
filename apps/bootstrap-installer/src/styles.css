@@ -1,11 +1,11 @@
 /*
- * Hermes Setup — defer entirely to the desktop's styles.css.
+ * Hercules Setup — defer entirely to the desktop's styles.css.
  *
- * Rather than re-implement the Hermes design system (and inevitably drift
+ * Rather than re-implement the Hercules design system (and inevitably drift
  * from it), we import apps/desktop/src/styles.css wholesale. The desktop
  * is the canonical source of truth for fonts, color tokens, button chrome,
  * scrollbars, layout utilities, and animations. Any change to the
- * Hermes look propagates here automatically with no copy-paste maintenance.
+ * Hercules look propagates here automatically with no copy-paste maintenance.
  *
  * Path resolution caveats:
  *   - Tailwind v4's `@import` resolves relative to this file. The desktop's
@@ -29,7 +29,7 @@
 
 /* Installer-only additions: a fade-in animation and a warm radial glow
    for the welcome screen. Everything else inherits from the desktop. */
-@keyframes hermes-fade-in {
+@keyframes hercules-fade-in {
   from {
     opacity: 0;
     transform: translateY(4px);
@@ -40,11 +40,11 @@
   }
 }
 
-.hermes-fade-in {
-  animation: hermes-fade-in 0.45s ease-out both;
+.hercules-fade-in {
+  animation: hercules-fade-in 0.45s ease-out both;
 }
 
-.hermes-glow {
+.hercules-glow {
   background: radial-gradient(
     ellipse at center,
     color-mix(in srgb, var(--ui-warm) 18%, transparent) 0%,
@@ -58,12 +58,12 @@
  * The imported desktop :root.dark only flips the per-mode mix knobs + neutral
  * chrome; the seed COLORS are normally painted at runtime by the desktop's
  * applyTheme(). The installer has no theme runtime, so we mirror them here from
- * apps/desktop/src/themes/presets.ts (nousTheme.darkColors). The whole
+ * apps/desktop/src/themes/presets.ts (herculesTheme.darkColors). The whole
  * --ui-* / --dt-* chain in the imported stylesheet derives from these seeds, so
  * flipping them is enough — we only additionally override the few tokens
  * applyTheme() sets inline that DON'T derive from a seed (primary-foreground on
  * the cream accent, destructive). Unlayered on purpose so it wins over the
- * imported @layer base :root light seeds. Keep in sync with nousTheme.darkColors
+ * imported @layer base :root light seeds. Keep in sync with herculesTheme.darkColors
  * if that palette is retuned.
  */
 :root.dark {
@@ -73,7 +73,7 @@
   --theme-primary: #ffe6cb;
   --theme-secondary: #1b45a4;
   --theme-accent-soft: #1540b1;
-  --theme-midground: #0053fd;
+  --theme-midground: #1f6f6b;
   --theme-warm: #ffe6cb;
   --theme-background-seed: #0d2f86;
   --theme-sidebar-seed: #09286f;

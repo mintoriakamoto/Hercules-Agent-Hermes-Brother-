@@ -8,7 +8,7 @@ import type { DashboardTheme, ThemeTypography, ThemeLayout } from "./types";
  * corner-radius all shift to match the theme's personality.
  *
  * Theme names must stay in sync with the backend's
- * `_BUILTIN_DASHBOARD_THEMES` list in `hermes_cli/web_server.py`.
+ * `_BUILTIN_DASHBOARD_THEMES` list in `hercules_cli/web_server.py`.
  */
 
 // ---------------------------------------------------------------------------
@@ -40,13 +40,13 @@ const DEFAULT_LAYOUT: ThemeLayout = {
 
 export const defaultTheme: DashboardTheme = {
   name: "default",
-  label: "Hermes Teal",
-  description: "Classic dark teal — the canonical Hermes look",
+  label: "Hercules Teal",
+  description: "Classic dark teal — the canonical Hercules look",
   palette: {
     background: { hex: "#041c1c", alpha: 1 },
-    midground: { hex: "#ffe6cb", alpha: 1 },
+    midground: { hex: "#33a29b", alpha: 1 },
     foreground: { hex: "#ffffff", alpha: 0 },
-    warmGlow: "rgba(255, 189, 56, 0.35)",
+    warmGlow: "rgba(156, 175, 90, 0.28)",
     noiseOpacity: 1,
   },
   typography: DEFAULT_TYPOGRAPHY,
@@ -184,27 +184,27 @@ export const roseTheme: DashboardTheme = {
   },
 };
 
-/** Light mode — vivid Nous-blue accents on a cream canvas. */
-export const nousBlueTheme: DashboardTheme = {
-  name: "nous-blue",
-  label: "Nous Blue",
-  description: "Light mode — vivid Nous-blue accents on cream canvas",
+/** Light mode — Aegean teal accents on a marble canvas. */
+export const aegeanLightTheme: DashboardTheme = {
+  name: "aegean-light",
+  label: "Aegean Light",
+  description: "Light mode — Aegean teal accents on marble canvas",
   palette: {
-    background: { hex: "#E8F2FD", alpha: 1 },
-    midground: { hex: "#0053FD", alpha: 1 },
-    foreground: { hex: "#170d02", alpha: 0 },
-    warmGlow: "rgba(0, 83, 253, 0.12)",
+    background: { hex: "#E9F1EE", alpha: 1 },
+    midground: { hex: "#1F6F6B", alpha: 1 },
+    foreground: { hex: "#12201D", alpha: 0 },
+    warmGlow: "rgba(156, 175, 90, 0.14)",
     noiseOpacity: 0,
   },
   typography: DEFAULT_TYPOGRAPHY,
   layout: DEFAULT_LAYOUT,
-  terminalBackground: "#f5f8fc",
-  terminalForeground: "#170d02",
+  terminalBackground: "#f2f7f5",
+  terminalForeground: "#12201D",
   seriesColors: {
-    inputTokenAccent: "#001934",
-    outputTokenAccent: "#0053fd",
+    inputTokenAccent: "#0f3d3a",
+    outputTokenAccent: "#1f6f6b",
   },
-  swatchColors: ["#170d02", "#0053FD", "#E8F2FD"],
+  swatchColors: ["#12201D", "#1F6F6B", "#9CAF5A"],
 };
 
 /**
@@ -214,8 +214,8 @@ export const nousBlueTheme: DashboardTheme = {
  */
 export const defaultLargeTheme: DashboardTheme = {
   name: "default-large",
-  label: "Hermes Teal (Large)",
-  description: "Hermes Teal with bigger fonts and roomier spacing",
+  label: "Hercules Teal (Large)",
+  description: "Hercules Teal with bigger fonts and roomier spacing",
   palette: defaultTheme.palette,
   typography: {
     ...DEFAULT_TYPOGRAPHY,
@@ -231,7 +231,7 @@ export const defaultLargeTheme: DashboardTheme = {
 export const BUILTIN_THEMES: Record<string, DashboardTheme> = {
   default: defaultTheme,
   "default-large": defaultLargeTheme,
-  "nous-blue": nousBlueTheme,
+  "aegean-light": aegeanLightTheme,
   midnight: midnightTheme,
   ember: emberTheme,
   mono: monoTheme,

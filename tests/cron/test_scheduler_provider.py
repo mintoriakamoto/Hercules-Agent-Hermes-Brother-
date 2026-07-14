@@ -1,7 +1,7 @@
 """Characterization tests for the cron trigger before/after the provider refactor.
 
 These lock the CURRENT in-process-ticker contract (Phase 0 of the pluggable
-CronScheduler plan, .hermes/plans/cron-scheduler-provider-interface.md). They
+CronScheduler plan, .hercules/plans/cron-scheduler-provider-interface.md). They
 must pass unchanged on `main` now, and after every subsequent phase of the
 refactor — they are the regression harness that proves the built-in firing
 behavior is byte-for-byte preserved when the ticker is moved behind the
@@ -9,7 +9,7 @@ CronScheduler provider interface.
 
 No production code is exercised beyond the two ticker entry points:
   - gateway/run.py::_start_cron_ticker        (production gateway ticker)
-  - hermes_cli/web_server.py::_start_desktop_cron_ticker  (desktop fallback)
+  - hercules_cli/web_server.py::_start_desktop_cron_ticker  (desktop fallback)
 
 Both call `cron.scheduler.tick(...)` on a loop and exit when their stop_event
 is set. We patch `cron.scheduler.tick` (both tickers import it locally as
@@ -75,7 +75,7 @@ def test_desktop_ticker_calls_tick_then_stops():
     """The desktop dashboard ticker loop calls cron.scheduler.tick and exits
     once the stop_event is set. Desktop has no live adapters, so it ticks with
     no adapters/loop."""
-    from hermes_cli.web_server import _start_desktop_cron_ticker
+    from hercules_cli.web_server import _start_desktop_cron_ticker
 
     calls = []
     stop = threading.Event()
@@ -187,21 +187,23 @@ def test_inprocess_provider_stop_is_noop():
 
 def test_default_config_cron_provider_is_empty():
     """The new cron.provider key defaults to empty (= built-in)."""
-    from hermes_cli.config import DEFAULT_CONFIG
+    from hercules_cli.config import DEFAULT_CONFIG
 
     assert DEFAULT_CONFIG["cron"]["provider"] == ""
 
 
 def test_discover_cron_schedulers_returns_list():
-    """Discovery returns bundled non-default providers.
+    """Discovery returns a list of bundled non-default providers.
 
-    The built-in is core, not discovered here.
+    The built-in is core (not discovered here). With the Nous-mediated
+    an external scheduler provider removed there are currently no bundled non-default
+    providers, so discovery is typically empty — a user-installed provider
+    under $HERCULES_HOME/plugins/ would appear here.
     """
     from plugins.cron_providers import discover_cron_schedulers
 
     result = discover_cron_schedulers()
     assert isinstance(result, list)
-    assert any(name == "chronos" for name, _desc, _available in result)
 
 
 def test_load_unknown_cron_scheduler_returns_none():
@@ -231,7 +233,7 @@ def test_cron_provider_package_does_not_shadow_core_cron_package(monkeypatch):
 
 def test_resolve_defaults_to_builtin(monkeypatch):
     """Empty cron.provider → built-in."""
-    import hermes_cli.config as cfg
+    import hercules_cli.config as cfg
     from cron import scheduler_provider as sp
 
     monkeypatch.setattr(cfg, "load_config", lambda: {"cron": {"provider": ""}})
@@ -241,7 +243,7 @@ def test_resolve_defaults_to_builtin(monkeypatch):
 
 def test_resolve_no_cron_section_falls_back_to_builtin(monkeypatch):
     """Config with no cron section at all → built-in (cfg_get returns default)."""
-    import hermes_cli.config as cfg
+    import hercules_cli.config as cfg
     from cron import scheduler_provider as sp
 
     monkeypatch.setattr(cfg, "load_config", lambda: {})
@@ -251,7 +253,7 @@ def test_resolve_no_cron_section_falls_back_to_builtin(monkeypatch):
 
 def test_resolve_unknown_provider_falls_back_to_builtin(monkeypatch):
     """A named provider that doesn't exist → built-in (cron never dies)."""
-    import hermes_cli.config as cfg
+    import hercules_cli.config as cfg
     from cron import scheduler_provider as sp
 
     monkeypatch.setattr(cfg, "load_config", lambda: {"cron": {"provider": "nope-not-real"}})
@@ -261,7 +263,7 @@ def test_resolve_unknown_provider_falls_back_to_builtin(monkeypatch):
 
 def test_resolve_unavailable_provider_falls_back(monkeypatch):
     """A provider that loads but reports is_available()==False → built-in."""
-    import hermes_cli.config as cfg
+    import hercules_cli.config as cfg
     import plugins.cron_providers as pc
     from cron import scheduler_provider as sp
     from cron.scheduler_provider import CronScheduler
@@ -285,7 +287,7 @@ def test_resolve_unavailable_provider_falls_back(monkeypatch):
 
 def test_resolve_available_provider_is_used(monkeypatch):
     """A provider that loads and is available is returned (not the fallback)."""
-    import hermes_cli.config as cfg
+    import hercules_cli.config as cfg
     import plugins.cron_providers as pc
     from cron import scheduler_provider as sp
     from cron.scheduler_provider import CronScheduler
@@ -531,9 +533,9 @@ def test_cron_status_reports_alive_but_failing(tmp_path, monkeypatch, capsys):
     """cron_status warns when the ticker is alive (fresh heartbeat) but no tick
     has succeeded recently (#32612: alive-but-failing must not look healthy)."""
     import cron.jobs as jobs
-    from hermes_cli import cron as cron_cli
+    from hercules_cli import cron as cron_cli
 
-    monkeypatch.setattr("hermes_cli.gateway.find_gateway_pids", lambda: [4321])
+    monkeypatch.setattr("hercules_cli.gateway.find_gateway_pids", lambda: [4321])
     monkeypatch.setattr(jobs, "get_ticker_heartbeat_age", lambda: 5.0)      # fresh
     monkeypatch.setattr(jobs, "get_ticker_success_age", lambda: 9_999.0)    # stale
     monkeypatch.setattr("cron.jobs.list_jobs", lambda **k: [])
@@ -546,9 +548,9 @@ def test_cron_status_reports_alive_but_failing(tmp_path, monkeypatch, capsys):
 
 def test_cron_status_healthy_when_both_fresh(tmp_path, monkeypatch, capsys):
     import cron.jobs as jobs
-    from hermes_cli import cron as cron_cli
+    from hercules_cli import cron as cron_cli
 
-    monkeypatch.setattr("hermes_cli.gateway.find_gateway_pids", lambda: [4321])
+    monkeypatch.setattr("hercules_cli.gateway.find_gateway_pids", lambda: [4321])
     monkeypatch.setattr(jobs, "get_ticker_heartbeat_age", lambda: 5.0)
     monkeypatch.setattr(jobs, "get_ticker_success_age", lambda: 5.0)
     monkeypatch.setattr("cron.jobs.list_jobs", lambda **k: [])
@@ -560,9 +562,9 @@ def test_cron_status_healthy_when_both_fresh(tmp_path, monkeypatch, capsys):
 
 def test_cron_status_reports_stalled_when_no_heartbeat(tmp_path, monkeypatch, capsys):
     import cron.jobs as jobs
-    from hermes_cli import cron as cron_cli
+    from hercules_cli import cron as cron_cli
 
-    monkeypatch.setattr("hermes_cli.gateway.find_gateway_pids", lambda: [4321])
+    monkeypatch.setattr("hercules_cli.gateway.find_gateway_pids", lambda: [4321])
     monkeypatch.setattr(jobs, "get_ticker_heartbeat_age", lambda: 9_999.0)  # dead
     monkeypatch.setattr(jobs, "get_ticker_success_age", lambda: 9_999.0)
     monkeypatch.setattr("cron.jobs.list_jobs", lambda **k: [])
@@ -594,7 +596,7 @@ class TestGuardJobCredentialExfil:
 
     def test_named_custom_offhost_is_blocked(self, monkeypatch):
         import pytest
-        import hermes_cli.runtime_provider as rp
+        import hercules_cli.runtime_provider as rp
         from cron.scheduler import _guard_job_credential_exfil
 
         monkeypatch.setattr(rp, "has_named_custom_provider", lambda n: True)
@@ -609,7 +611,7 @@ class TestGuardJobCredentialExfil:
             _guard_job_credential_exfil(job)
 
     def test_named_custom_matching_host_is_allowed(self, monkeypatch):
-        import hermes_cli.runtime_provider as rp
+        import hercules_cli.runtime_provider as rp
         from cron.scheduler import _guard_job_credential_exfil
 
         monkeypatch.setattr(rp, "has_named_custom_provider", lambda n: True)

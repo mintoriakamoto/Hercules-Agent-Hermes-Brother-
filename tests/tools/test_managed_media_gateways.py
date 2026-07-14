@@ -5,8 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from hermes_cli.nous_account import NousPortalAccountInfo
-
 
 TOOLS_DIR = Path(__file__).resolve().parents[2] / "tools"
 
@@ -47,17 +45,15 @@ def _restore_tool_and_agent_modules():
 
 
 @pytest.fixture(autouse=True)
-def _enable_managed_nous_tools(monkeypatch):
-    """Patch the source modules so managed_nous_tools_enabled() returns True
-    even after tool modules are dynamically reloaded."""
+def _enable_managed_tool_gateway(monkeypatch):
+    """Force the managed Tool Gateway entitlement gate ON so the gateway
+    routing paths are exercised, even after tool modules are dynamically
+    reloaded. The gateway feature itself is env-var driven
+    (TOOL_GATEWAY_USER_TOKEN / *_GATEWAY_URL / TOOL_GATEWAY_DOMAIN); this only
+    flips the entitlement stub that the tool modules consult."""
     monkeypatch.setattr(
-        "hermes_cli.nous_account.get_nous_portal_account_info",
-        lambda: NousPortalAccountInfo(
-            logged_in=True,
-            source="jwt",
-            fresh=False,
-            paid_service_access=True,
-        ),
+        "tools.tool_backend_helpers.managed_nous_tools_enabled",
+        lambda *args, **kwargs: True,
     )
 
 
@@ -306,7 +302,7 @@ def test_transcription_uses_model_specific_response_formats(monkeypatch, tmp_pat
     whisper_capture = {}
     _install_fake_tools_package()
     _install_fake_openai_module(whisper_capture, transcription_response="hello from whisper")
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("HERCULES_HOME", str(tmp_path))
     (tmp_path / "config.yaml").write_text("stt:\n  provider: openai\n")
     monkeypatch.delenv("VOICE_TOOLS_OPENAI_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)

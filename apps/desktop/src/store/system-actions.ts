@@ -1,9 +1,9 @@
 import { atom } from 'nanostores'
 
-import { getActionStatus, restartGateway } from '@/hermes'
+import { getActionStatus, restartGateway } from '@/hercules'
 import { translateNow } from '@/i18n'
 import { notifyError } from '@/store/notifications'
-import type { ActionResponse } from '@/types/hermes'
+import type { ActionResponse } from '@/types/hercules'
 
 const POLL_ATTEMPTS = 18
 const POLL_INTERVAL_MS = 1200

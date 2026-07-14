@@ -1,7 +1,7 @@
 ---
 sidebar_position: 11
 title: "Cron Internals"
-description: "How Hermes stores, schedules, edits, pauses, skill-loads, and delivers cron jobs"
+description: "How Hercules stores, schedules, edits, pauses, skill-loads, and delivers cron jobs"
 ---
 
 # Cron Internals
@@ -16,7 +16,7 @@ The cron subsystem provides scheduled task execution — from simple one-shot de
 | `cron/scheduler.py` | Scheduler loop — due-job detection, execution, repeat tracking |
 | `tools/cronjob_tools.py` | Model-facing `cronjob` tool registration and handler |
 | `gateway/run.py` | Gateway integration — cron ticking in the long-running loop |
-| `hermes_cli/cron.py` | CLI `hermes cron` subcommands |
+| `hercules_cli/cron.py` | CLI `hercules cron` subcommands |
 
 ## Scheduling Model
 
@@ -33,7 +33,7 @@ The model-facing surface is a single `cronjob` tool with action-style operations
 
 ## Job Storage
 
-Jobs are stored in `~/.hermes/cron/jobs.json` with atomic write semantics (write to temp file, then rename). Each job record contains:
+Jobs are stored in `~/.hercules/cron/jobs.json` with atomic write semantics (write to temp file, then rename). Each job record contains:
 
 ```json
 {
@@ -113,9 +113,9 @@ The active provider is chosen by the `cron.provider` config key:
 - **empty (default)** → the built-in `InProcessCronScheduler`, which runs the
   historical in-process loop calling `scheduler.tick()` every 60 seconds. This
   is byte-identical to the pre-provider behavior.
-- **a named provider** (e.g. `chronos`, a managed-cron provider for
+- **a named provider** (e.g. `external`, a managed-cron provider for
   scale-to-zero deployments) → discovered from `plugins/cron/<name>/` or
-  `$HERMES_HOME/plugins/<name>/`.
+  `$HERCULES_HOME/plugins/<name>/`.
 
 If a named provider is missing, fails to load, or reports `is_available() ==
 False`, the resolver falls back to the built-in with a warning — **cron is
@@ -127,12 +127,12 @@ What "firing" *means* (job execution + delivery) is unchanged and shared by all
 providers — it stays in `scheduler.run_job()` / `scheduler._deliver_result()`.
 A provider only controls the trigger, never execution.
 
-In CLI mode, cron jobs only fire when `hermes cron` commands are run or during active CLI sessions.
+In CLI mode, cron jobs only fire when `hercules cron` commands are run or during active CLI sessions.
 
-### Managed cron (Chronos) for scale-to-zero
+### Managed cron (an external scheduler) for scale-to-zero
 
-Hosted gateways can run the **Chronos** provider (`cron.provider: chronos`)
-instead of the built-in ticker. Chronos lets an idle gateway **scale to zero**
+Hosted gateways can run the **an external scheduler** provider (`cron.provider: external`)
+instead of the built-in ticker. an external scheduler lets an idle gateway **scale to zero**
 and still fire cron jobs: rather than a 60-second in-process loop (which would
 keep the process awake), it asks Nous infrastructure to arm exactly **one
 managed one-shot per job at that job's real next-fire time**. At fire time Nous
@@ -146,7 +146,7 @@ scheduler credentials):
 
 ```
 create/update a cron job
-  → Chronos asks Nous to arm a one-shot at the job's next_run_at
+  → an external scheduler asks Nous to arm a one-shot at the job's next_run_at
       (authenticated with the agent's existing Nous token)
   → at fire time Nous calls the gateway: POST {callback_url}/api/cron/fire
       (authenticated with a short-lived, purpose-scoped Nous-minted JWT)
@@ -159,17 +159,17 @@ Config (all non-secret; on hosted agents Nous sets these at provision time):
 
 | key | meaning |
 |---|---|
-| `cron.provider` | `chronos` to activate (empty = built-in ticker) |
-| `cron.chronos.portal_url` | Nous base URL (arming + the fire-token issuer) |
-| `cron.chronos.callback_url` | the gateway's own public base URL for inbound fires |
-| `cron.chronos.expected_audience` | this agent's fire-token audience |
-| `cron.chronos.nas_jwks_url` | key set for verifying the inbound fire token |
+| `cron.provider` | `external` to activate (empty = built-in ticker) |
+| `cron.external.portal_url` | Nous base URL (arming + the fire-token issuer) |
+| `cron.external.callback_url` | the gateway's own public base URL for inbound fires |
+| `cron.external.expected_audience` | this agent's fire-token audience |
+| `cron.external.nas_jwks_url` | key set for verifying the inbound fire token |
 
-If Chronos is misconfigured or the agent isn't logged into Nous,
+If an external scheduler is misconfigured or the agent isn't logged into Nous,
 `resolve_cron_scheduler()` falls back to the built-in ticker (logged warning) —
 cron never loses its trigger. Recurring jobs re-arm after each fire; `repeat`-N
 jobs stop cleanly when the count is exhausted (no orphaned one-shot). The full
-agent↔Nous wire contract lives in `docs/chronos-managed-cron-contract.md`.
+agent↔Nous wire contract lives in `docs/external-managed-cron-contract.md`.
 
 ### Fresh Session Isolation
 
@@ -200,7 +200,7 @@ Create a daily funding report → attach "ai-funding-daily-report" skill
 Jobs can also attach a Python script via the `script` field. The script runs *before* each agent turn, and its stdout is injected into the prompt as context. This enables data collection and change detection patterns:
 
 ```python
-# ~/.hermes/scripts/check_competitors.py
+# ~/.hercules/scripts/check_competitors.py
 import requests, json
 # Fetch competitor release notes, diff against last run
 # Print summary to stdout — agent analyzes and reports
@@ -209,11 +209,11 @@ import requests, json
 The script timeout defaults to 3600 seconds (1 hour). `_get_script_timeout()` resolves the limit through a three-layer chain:
 
 1. **Module-level override** — `_SCRIPT_TIMEOUT` (for tests/monkeypatching). Only used when it differs from the default.
-2. **Environment variable** — `HERMES_CRON_SCRIPT_TIMEOUT`
+2. **Environment variable** — `HERCULES_CRON_SCRIPT_TIMEOUT`
 3. **Config** — `cron.script_timeout_seconds` in `config.yaml` (read via `load_config()`)
 4. **Default** — 3600 seconds (1 hour)
 
-This timeout bounds the **pre-run script only**, not the agent. Skill-based / LLM-driven jobs run on a separate *inactivity*-based budget (`HERMES_CRON_TIMEOUT`, default 600s of idle time, `0` = unlimited) — they can run for hours as long as they keep calling tools or streaming tokens, and are only killed after the configured idle period with no activity. Scripts are dispatched to a persistent thread pool (not held under the tick lock), so a long-running script does not block other due jobs from firing.
+This timeout bounds the **pre-run script only**, not the agent. Skill-based / LLM-driven jobs run on a separate *inactivity*-based budget (`HERCULES_CRON_TIMEOUT`, default 600s of idle time, `0` = unlimited) — they can run for hours as long as they keep calling tools or streaming tokens, and are only killed after the configured idle period with no activity. Scripts are dispatched to a persistent thread pool (not held under the tick lock), so a long-running script does not block other due jobs from firing.
 
 ### Provider Recovery
 
@@ -235,7 +235,7 @@ Most platforms also accept an optional thread/topic as a third segment: `platfor
 | Target | Syntax | Example |
 |--------|--------|---------|
 | Origin chat | `origin` | Deliver to the chat where the job was created |
-| Local file | `local` | Save to `~/.hermes/cron/output/` |
+| Local file | `local` | Save to `~/.hercules/cron/output/` |
 | Telegram | `telegram`, `telegram:<chat_id>`, `telegram:<chat_id>:<thread_id>`, `telegram:@username` | `telegram:-1001234567890:17585` |
 | Discord | `discord`, `discord:#channel`, `discord:<channel_id>`, `discord:<channel_id>:<thread_id>` | `discord:#engineering` |
 | Slack | `slack`, `slack:#channel`, `slack:<channel_id>`, `slack:<channel_id>:<thread_ts>` | `slack:#engineering` |
@@ -280,20 +280,20 @@ Cron-run sessions have the `cronjob` toolset disabled. This prevents:
 
 ## Locking
 
-The scheduler uses cross-process file-based locking (`fcntl.flock` on Unix, `msvcrt.locking` on Windows) to prevent overlapping ticks from executing the same due-job batch twice — even between the gateway's in-process ticker and a standalone `hermes cron` / manual `tick()` call. If the lock cannot be acquired, `tick()` returns 0 immediately.
+The scheduler uses cross-process file-based locking (`fcntl.flock` on Unix, `msvcrt.locking` on Windows) to prevent overlapping ticks from executing the same due-job batch twice — even between the gateway's in-process ticker and a standalone `hercules cron` / manual `tick()` call. If the lock cannot be acquired, `tick()` returns 0 immediately.
 
 ## CLI Interface
 
-The `hermes cron` CLI provides direct job management:
+The `hercules cron` CLI provides direct job management:
 
 ```bash
-hermes cron list                    # Show all jobs
-hermes cron create                  # Interactive job creation (alias: add)
-hermes cron edit <job_id>           # Edit job configuration
-hermes cron pause <job_id>          # Pause a running job
-hermes cron resume <job_id>         # Resume a paused job
-hermes cron run <job_id>            # Trigger immediate execution
-hermes cron remove <job_id>         # Delete a job
+hercules cron list                    # Show all jobs
+hercules cron create                  # Interactive job creation (alias: add)
+hercules cron edit <job_id>           # Edit job configuration
+hercules cron pause <job_id>          # Pause a running job
+hercules cron resume <job_id>         # Resume a paused job
+hercules cron run <job_id>            # Trigger immediate execution
+hercules cron remove <job_id>         # Delete a job
 ```
 
 ## Related Docs

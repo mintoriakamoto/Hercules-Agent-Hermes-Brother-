@@ -54,11 +54,11 @@ def seed_tasks(conn, kb, n, assignee="bench-worker", with_parents=False):
 
 
 def main():
-    home = tempfile.mkdtemp(prefix="hermes_bench_")
-    os.environ["HERMES_HOME"] = home
+    home = tempfile.mkdtemp(prefix="hercules_bench_")
+    os.environ["HERCULES_HOME"] = home
     os.environ["HOME"] = home
     sys.path.insert(0, WT)
-    from hermes_cli import kanban_db as kb
+    from hercules_cli import kanban_db as kb
 
     kb.init_db()
 

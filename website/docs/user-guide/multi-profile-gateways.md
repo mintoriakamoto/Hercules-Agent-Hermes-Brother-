@@ -10,12 +10,12 @@ covers the operational concerns: starting them all together, viewing logs
 across profiles, preventing the host from sleeping, and recovering from common
 launchd/systemd quirks.
 
-If you only run one Hermes agent, you don't need this page — see
+If you only run one Hercules agent, you don't need this page — see
 [Profiles](./profiles.md) for the basics.
 
 ## When to use this
 
-You want this setup when you have two or more Hermes agents that should all
+You want this setup when you have two or more Hercules agents that should all
 be online at the same time. Common reasons:
 
 - A personal assistant on one Telegram bot and a coding agent on another
@@ -25,17 +25,17 @@ be online at the same time. Common reasons:
   memory and skills
 
 Every profile already gets its own per-platform LaunchAgent
-(`ai.hermes.gateway-<name>.plist`) or systemd user service
-(`hermes-gateway-<name>.service`). This guide adds the patterns for managing
+(`ai.hercules.gateway-<name>.plist`) or systemd user service
+(`hercules-gateway-<name>.service`). This guide adds the patterns for managing
 them collectively.
 
 ## Quick start
 
 ```bash
 # Create profiles (once)
-hermes profile create coder
-hermes profile create personal-bot
-hermes profile create research
+hercules profile create coder
+hercules profile create personal-bot
+hercules profile create research
 
 # Configure each
 coder setup
@@ -85,11 +85,11 @@ Set the flag on the **default profile** (it owns the multiplexer) and restart
 its gateway:
 
 ```bash
-hermes config set gateway.multiplex_profiles true
-hermes gateway restart
+hercules config set gateway.multiplex_profiles true
+hercules gateway restart
 ```
 
-Equivalently, in the default profile's `~/.hermes/config.yaml`:
+Equivalently, in the default profile's `~/.hercules/config.yaml`:
 
 ```yaml
 gateway:
@@ -103,7 +103,7 @@ credentials, and routes each inbound message to the profile it belongs to. Each
 turn resolves the routed profile's config, skills, memory, SOUL, **and provider
 keys** — credentials are never shared across profiles.
 
-You do **not** run `hermes gateway start` for the secondary profiles — the
+You do **not** run `hercules gateway start` for the secondary profiles — the
 default gateway serves them. See the contract changes below.
 
 ### What changes when multiplexing is on
@@ -113,7 +113,7 @@ moment the flag is off.
 
 #### 1. Secondary profiles must not start their own gateway
 
-With a multiplexer running, a named-profile `hermes gateway start` / `run` is a
+With a multiplexer running, a named-profile `hercules gateway start` / `run` is a
 **hard error**, pointing you back at the multiplexer:
 
 ```
@@ -175,8 +175,8 @@ migration, no orphaned history.
 #### 5. One PID/lock and one status surface
 
 There is a single process-level PID and lock (the multiplexer, under the default
-home). `hermes status` reports the multiplexer and the profiles it serves;
-`hermes status -p <name>` slices to one profile. Each profile still writes its
+home). `hercules status` reports the multiplexer and the profiles it serves;
+`hercules status -p <name>` slices to one profile. Each profile still writes its
 own `runtime_status.json` under its own home, so existing per-profile readers
 keep working.
 
@@ -193,7 +193,7 @@ exactly as they do with separate gateways.
 
 The CLI ships with single-profile lifecycle commands. To act across every
 profile, wrap them in a shell loop. Put the snippet below in
-`~/.local/bin/hermes-gateways` and `chmod +x` it:
+`~/.local/bin/hercules-gateways` and `chmod +x` it:
 
 ```sh
 #!/bin/sh
@@ -203,16 +203,16 @@ set -eu
 profiles="default coder personal-bot research"
 
 usage() {
-  echo "Usage: hermes-gateways {start|stop|restart|status|list}"
+  echo "Usage: hercules-gateways {start|stop|restart|status|list}"
 }
 
 run_for_profile() {
   profile="$1"
   action="$2"
   if [ "$profile" = "default" ]; then
-    hermes gateway "$action"
+    hercules gateway "$action"
   else
-    hermes -p "$profile" gateway "$action"
+    hercules -p "$profile" gateway "$action"
   fi
 }
 
@@ -225,7 +225,7 @@ case "$action" in
     done
     ;;
   list)
-    hermes gateway list
+    hercules gateway list
     ;;
   *)
     usage
@@ -237,16 +237,16 @@ esac
 Then:
 
 ```bash
-hermes-gateways start      # start every configured profile
-hermes-gateways stop       # stop every configured profile
-hermes-gateways restart    # restart all
-hermes-gateways status     # status across all
-hermes-gateways list       # delegates to `hermes gateway list`
+hercules-gateways start      # start every configured profile
+hercules-gateways stop       # stop every configured profile
+hercules-gateways restart    # restart all
+hercules-gateways status     # status across all
+hercules-gateways list       # delegates to `hercules gateway list`
 ```
 
 :::tip
-The `default` profile is targeted with `hermes gateway <action>` (no `-p`),
-not `hermes -p default gateway <action>`. The wrapper above handles both forms.
+The `default` profile is targeted with `hercules gateway <action>` (no `-p`),
+not `hercules -p default gateway <action>`. The wrapper above handles both forms.
 :::
 
 ## Manage one profile
@@ -263,7 +263,7 @@ coder gateway install    # create the LaunchAgent / systemd unit
 coder gateway uninstall  # remove the service file
 ```
 
-These are equivalent to `hermes -p coder gateway <action>` — useful if a
+These are equivalent to `hercules -p coder gateway <action>` — useful if a
 profile alias is not on `PATH` or if you target profiles dynamically from a
 script.
 
@@ -274,11 +274,11 @@ never clash:
 
 | Platform | Path                                                              |
 | -------- | ----------------------------------------------------------------- |
-| macOS    | `~/Library/LaunchAgents/ai.hermes.gateway-<profile>.plist`        |
-| Linux    | `~/.config/systemd/user/hermes-gateway-<profile>.service`         |
+| macOS    | `~/Library/LaunchAgents/ai.hercules.gateway-<profile>.plist`        |
+| Linux    | `~/.config/systemd/user/hercules-gateway-<profile>.service`         |
 
-The default profile keeps the historical names: `ai.hermes.gateway.plist` /
-`hermes-gateway.service`.
+The default profile keeps the historical names: `ai.hercules.gateway.plist` /
+`hercules-gateway.service`.
 
 ## Viewing logs
 
@@ -286,35 +286,35 @@ Each profile writes to its own log files:
 
 ```bash
 # Default profile
-tail -f ~/.hermes/logs/gateway.log
-tail -f ~/.hermes/logs/gateway.error.log
+tail -f ~/.hercules/logs/gateway.log
+tail -f ~/.hercules/logs/gateway.error.log
 
 # Named profile
-tail -f ~/.hermes/profiles/<name>/logs/gateway.log
-tail -f ~/.hermes/profiles/<name>/logs/gateway.error.log
+tail -f ~/.hercules/profiles/<name>/logs/gateway.log
+tail -f ~/.hercules/profiles/<name>/logs/gateway.error.log
 ```
 
 Stream every profile's log simultaneously:
 
 ```bash
-tail -f ~/.hermes/logs/gateway.log ~/.hermes/profiles/*/logs/gateway.log
+tail -f ~/.hercules/logs/gateway.log ~/.hercules/profiles/*/logs/gateway.log
 ```
 
 The CLI also has a structured log viewer:
 
 ```bash
-hermes logs -f                  # follow default profile
-hermes -p coder logs -f         # follow one profile
-hermes logs --help              # filters, levels, JSON output
+hercules logs -f                  # follow default profile
+hercules -p coder logs -f         # follow one profile
+hercules logs --help              # filters, levels, JSON output
 ```
 
 ## Identify what's actually running
 
 ```bash
-hermes profile list             # profiles + model + gateway state
-hermes-gateways status          # full status across every profile
-launchctl list | grep hermes    # macOS — PIDs and labels
-systemctl --user list-units 'hermes-gateway-*'   # Linux — units
+hercules profile list             # profiles + model + gateway state
+hercules-gateways status          # full status across every profile
+launchctl list | grep hercules    # macOS — PIDs and labels
+systemctl --user list-units 'hercules-gateway-*'   # Linux — units
 ```
 
 ## Editing configuration
@@ -322,18 +322,18 @@ systemctl --user list-units 'hermes-gateway-*'   # Linux — units
 Every profile keeps its config inside its own directory:
 
 ```
-~/.hermes/profiles/<name>/
+~/.hercules/profiles/<name>/
 ├── .env              # API keys, bot tokens (chmod 600)
 ├── config.yaml       # model, provider, toolsets, gateway settings
 └── SOUL.md           # personality / system prompt
 ```
 
-The default profile uses `~/.hermes/` directly with the same three files.
+The default profile uses `~/.hercules/` directly with the same three files.
 
 Edit them with any editor or via the CLI:
 
 ```bash
-hermes config set model.model anthropic/claude-sonnet-4    # default profile
+hercules config set model.model anthropic/claude-sonnet-4    # default profile
 coder config set model.model openai/gpt-5                  # named profile
 ```
 
@@ -342,7 +342,7 @@ After editing `.env` or `config.yaml`, restart the affected gateway:
 ```bash
 coder gateway restart
 # or, for everything:
-hermes-gateways restart
+hercules-gateways restart
 ```
 
 ## Keeping the host awake
@@ -357,7 +357,7 @@ to sleep when idle. Two patterns:
 ```bash
 caffeinate -dis                    # block display, idle, and system sleep
 caffeinate -dis -t 28800           # same, auto-exit after 8 hours
-caffeinate -i -w $(cat ~/.hermes/gateway.pid) &   # awake while default gateway runs
+caffeinate -i -w $(cat ~/.hercules/gateway.pid) &   # awake while default gateway runs
 
 # Persistent: run in background and forget
 nohup caffeinate -dis >/dev/null 2>&1 &
@@ -388,7 +388,7 @@ use a third-party tool.
 
 ```bash
 # Inhibit suspend while a command runs
-systemd-inhibit --what=idle:sleep --who=hermes --why="gateways running" \
+systemd-inhibit --what=idle:sleep --who=hercules --why="gateways running" \
   sleep infinity &
 
 # Allow user services to keep running after logout (recommended)
@@ -396,7 +396,7 @@ sudo loginctl enable-linger "$USER"
 ```
 
 After enabling lingering, your systemd user units (including
-`hermes-gateway-<profile>.service`) continue running across SSH disconnects
+`hercules-gateway-<profile>.service`) continue running across SSH disconnects
 and reboots.
 
 ## Token-conflict safety
@@ -409,17 +409,17 @@ To audit:
 
 ```bash
 grep -H 'TELEGRAM_BOT_TOKEN\|DISCORD_BOT_TOKEN' \
-     ~/.hermes/.env ~/.hermes/profiles/*/.env
+     ~/.hercules/.env ~/.hercules/profiles/*/.env
 ```
 
 ## Updating the code
 
-`hermes update` pulls the latest code once and syncs new bundled skills into
+`hercules update` pulls the latest code once and syncs new bundled skills into
 every profile:
 
 ```bash
-hermes update
-hermes-gateways restart
+hercules update
+hercules-gateways restart
 ```
 
 User-modified skills are never overwritten.
@@ -428,7 +428,7 @@ User-modified skills are never overwritten.
 
 ### "Could not find service in domain for user gui: 501"
 
-You ran `hermes gateway start` after a previous `hermes gateway stop`. The
+You ran `hercules gateway start` after a previous `hercules gateway stop`. The
 CLI's `stop` does a full `launchctl unload`, which removes the service from
 launchd's registry. The CLI catches this specific error on `start` and
 automatically re-loads the plist (`↻ launchd job was unloaded; reloading
@@ -439,8 +439,8 @@ service definition`). The service starts normally. Nothing to fix.
 If a profile's gateway shows `not running` but a process is still alive:
 
 ```bash
-ps -ef | grep "hermes_cli.*-p <profile>"
-cat ~/.hermes/profiles/<profile>/gateway.pid
+ps -ef | grep "hercules_cli.*-p <profile>"
+cat ~/.hercules/profiles/<profile>/gateway.pid
 kill -TERM <pid>          # graceful
 kill -KILL <pid>          # if that fails after a few seconds
 <profile> gateway start
@@ -450,16 +450,16 @@ kill -KILL <pid>          # if that fails after a few seconds
 
 ```bash
 # macOS
-launchctl unload ~/Library/LaunchAgents/ai.hermes.gateway-<profile>.plist
-launchctl load   ~/Library/LaunchAgents/ai.hermes.gateway-<profile>.plist
+launchctl unload ~/Library/LaunchAgents/ai.hercules.gateway-<profile>.plist
+launchctl load   ~/Library/LaunchAgents/ai.hercules.gateway-<profile>.plist
 
 # Linux
-systemctl --user restart hermes-gateway-<profile>.service
+systemctl --user restart hercules-gateway-<profile>.service
 ```
 
 ### Health check
 
 ```bash
-hermes doctor                  # default profile
-hermes -p <profile> doctor     # one profile
+hercules doctor                  # default profile
+hercules -p <profile> doctor     # one profile
 ```

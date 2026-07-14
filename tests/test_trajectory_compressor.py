@@ -16,18 +16,18 @@ from trajectory_compressor import (
 )
 
 
-def test_import_loads_env_from_hermes_home(tmp_path, monkeypatch):
-    home = tmp_path / ".hermes"
+def test_import_loads_env_from_hercules_home(tmp_path, monkeypatch):
+    home = tmp_path / ".hercules"
     home.mkdir()
-    (home / ".env").write_text("OPENROUTER_API_KEY=from-hermes-home\n", encoding="utf-8")
+    (home / ".env").write_text("OPENROUTER_API_KEY=from-hercules-home\n", encoding="utf-8")
 
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("HERCULES_HOME", str(home))
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
     sys.modules.pop("trajectory_compressor", None)
     importlib.import_module("trajectory_compressor")
 
-    assert os.getenv("OPENROUTER_API_KEY") == "from-hermes-home"
+    assert os.getenv("OPENROUTER_API_KEY") == "from-hercules-home"
 
 
 def test_generate_summary_kimi_omits_temperature():
@@ -384,6 +384,32 @@ class TestFindProtectedIndices:
         ]
         protected, start, end = tc._find_protected_indices(trajectory)
         assert 0 in protected  # first human
+
+    def test_protect_last_n_exceeds_half_still_compresses(self):
+        """Regression: protect_last_n_turns > n/2 must not collapse the region.
+
+        The old midpoint (``n // 2``) split misclassified genuine tail turns
+        as head, forcing start >= end and returning the trajectory
+        uncompressed. With n=12 and protect_last_n_turns=8 (>6), turns between
+        the protected head and the last-8 tail are still compressible.
+        """
+        config = CompressionConfig()
+        config.protect_last_n_turns = 8
+        tc = _make_compressor(config)
+        n = 12
+        trajectory = [{"from": "system", "value": "sys"}]
+        trajectory += [
+            {"from": "gpt" if i % 2 else "tool", "value": f"turn {i}"}
+            for i in range(1, n)
+        ]
+        protected, start, end = tc._find_protected_indices(trajectory)
+        # Tail of 8 begins at index n-8 = 4, so [start, end) must be non-empty
+        # and lie strictly before the protected tail.
+        assert start < end, "compressible region collapsed"
+        assert end == n - config.protect_last_n_turns == 4
+        # Everything in the compressible region is genuinely unprotected.
+        for i in range(start, end):
+            assert i not in protected
 
     def test_disable_protect_first_system(self):
         config = CompressionConfig()

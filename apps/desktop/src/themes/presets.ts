@@ -20,75 +20,76 @@ const SYSTEM_MONO =
 
 export const DEFAULT_TYPOGRAPHY: DesktopThemeTypography = { fontSans: SYSTEM_SANS, fontMono: SYSTEM_MONO }
 
-const NOUS_BLUE = '#0053FD'
-const PSYCHE_BLUE = '#1540B1'
-const PSYCHE_WARM = '#FFE6CB'
+const HERCULES_TEAL = '#1F6F6B'
+const HERCULES_TEAL_BRIGHT = '#33A29B'
+const HERCULES_LAUREL = '#9CAF5A'
 
-const nousTint = (pct: number) => `color-mix(in srgb, ${NOUS_BLUE} ${pct}%, #FFFFFF)`
-const nousTintTransparent = (pct: number) => `color-mix(in srgb, ${NOUS_BLUE} ${pct}%, transparent)`
+const herculesTint = (pct: number) => `color-mix(in srgb, ${HERCULES_TEAL} ${pct}%, #FFFFFF)`
+const herculesTintTransparent = (pct: number) => `color-mix(in srgb, ${HERCULES_TEAL} ${pct}%, transparent)`
+const herculesLaurel = (pct: number) => `color-mix(in srgb, ${HERCULES_LAUREL} ${pct}%, #FFFFFF)`
 
 /**
- * Nous — canonical Hermes desktop identity. The palette keeps the current
- * glass geometry neutral, then lets the old bb/gui blue and psyche cream
- * return as accent seeds.
+ * Hercules — canonical desktop identity. Aegean teal primary with laurel-green
+ * accents over slate/marble neutrals. Keeps the glass geometry neutral, then
+ * lets the teal and laurel return as accent seeds.
  */
-export const nousTheme: DesktopTheme = {
-  name: 'nous',
-  label: 'Nous',
-  description: 'Glass neutrals with Nous blue accents',
+export const herculesTheme: DesktopTheme = {
+  name: 'hercules',
+  label: 'Hercules',
+  description: 'Aegean teal with laurel accents',
   colors: {
-    background: '#F8FAFF',
-    foreground: '#17171A',
+    background: '#F5FAF9',
+    foreground: '#12201D',
     card: '#FFFFFF',
-    cardForeground: '#17171A',
-    muted: nousTint(5),
-    mutedForeground: '#666678',
+    cardForeground: '#12201D',
+    muted: herculesTint(5),
+    mutedForeground: '#5C6E69',
     popover: '#FFFFFF',
-    popoverForeground: '#17171A',
-    primary: NOUS_BLUE,
-    primaryForeground: '#FCFCFC',
-    secondary: nousTint(7),
-    secondaryForeground: '#242432',
-    accent: nousTint(10),
-    accentForeground: '#202030',
-    border: nousTintTransparent(22),
-    input: nousTintTransparent(30),
-    ring: NOUS_BLUE,
-    midground: NOUS_BLUE,
-    composerRing: NOUS_BLUE,
+    popoverForeground: '#12201D',
+    primary: HERCULES_TEAL,
+    primaryForeground: '#FCFDFC',
+    secondary: herculesTint(7),
+    secondaryForeground: '#1E2C29',
+    accent: herculesLaurel(14),
+    accentForeground: '#20301C',
+    border: herculesTintTransparent(22),
+    input: herculesTintTransparent(30),
+    ring: HERCULES_TEAL,
+    midground: HERCULES_TEAL,
+    composerRing: HERCULES_TEAL,
     destructive: '#C72E4D',
     destructiveForeground: '#FFFFFF',
-    sidebarBackground: '#F3F7FF',
-    sidebarBorder: nousTintTransparent(18),
-    userBubble: nousTint(6),
-    userBubbleBorder: nousTintTransparent(24)
+    sidebarBackground: '#EEF5F3',
+    sidebarBorder: herculesTintTransparent(18),
+    userBubble: herculesTint(6),
+    userBubbleBorder: herculesTintTransparent(24)
   },
   darkColors: {
-    background: '#0D2F86',
-    foreground: PSYCHE_WARM,
-    card: '#12378F',
-    cardForeground: PSYCHE_WARM,
-    muted: '#183F9A',
-    mutedForeground: '#B5C7F3',
-    popover: '#123A96',
-    popoverForeground: PSYCHE_WARM,
-    primary: PSYCHE_WARM,
-    primaryForeground: '#0D2F86',
-    secondary: '#1B45A4',
-    secondaryForeground: '#E0E8FF',
-    accent: PSYCHE_BLUE,
-    accentForeground: '#F0F4FF',
-    border: '#3158AD',
-    input: '#0B2566',
-    ring: PSYCHE_WARM,
-    midground: NOUS_BLUE,
-    composerRing: PSYCHE_WARM,
+    background: '#0E1513',
+    foreground: '#E9F1EE',
+    card: '#17201E',
+    cardForeground: '#E9F1EE',
+    muted: '#1C2724',
+    mutedForeground: '#9DB2AC',
+    popover: '#141D1B',
+    popoverForeground: '#E9F1EE',
+    primary: HERCULES_TEAL_BRIGHT,
+    primaryForeground: '#05100E',
+    secondary: '#1F2C29',
+    secondaryForeground: '#D7E4E0',
+    accent: '#2A3A24',
+    accentForeground: '#C7D9A8',
+    border: '#2A3A36',
+    input: '#0B1210',
+    ring: HERCULES_TEAL_BRIGHT,
+    midground: HERCULES_TEAL,
+    composerRing: HERCULES_TEAL_BRIGHT,
     destructive: '#C0473A',
     destructiveForeground: '#FEF2F2',
-    sidebarBackground: '#09286F',
-    sidebarBorder: '#234A9C',
-    userBubble: '#143B91',
-    userBubbleBorder: '#3A63BD'
+    sidebarBackground: '#0B1210',
+    sidebarBorder: '#26332F',
+    userBubble: '#19241F',
+    userBubbleBorder: '#33453E'
   },
   typography: {
     fontSans: SYSTEM_SANS,
@@ -278,7 +279,7 @@ export const slateTheme: DesktopTheme = {
 }
 
 export const BUILTIN_THEMES: Record<string, DesktopTheme> = {
-  nous: nousTheme,
+  hercules: herculesTheme,
   midnight: midnightTheme,
   ember: emberTheme,
   mono: monoTheme,
@@ -289,4 +290,4 @@ export const BUILTIN_THEMES: Record<string, DesktopTheme> = {
 export const BUILTIN_THEME_LIST = Object.values(BUILTIN_THEMES)
 
 /** Skin used when nothing is persisted or the persisted name is retired. */
-export const DEFAULT_SKIN_NAME = 'nous'
+export const DEFAULT_SKIN_NAME = 'hercules'

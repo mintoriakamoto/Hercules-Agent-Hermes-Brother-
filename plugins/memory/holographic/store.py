@@ -1,6 +1,6 @@
 """
 SQLite-backed fact store with entity resolution and trust scoring.
-Single-user Hermes memory store plugin.
+Single-user Hercules memory store plugin.
 """
 
 import re
@@ -24,7 +24,18 @@ CREATE TABLE IF NOT EXISTS facts (
     helpful_count   INTEGER DEFAULT 0,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    hrr_vector      BLOB
+    hrr_vector      BLOB,
+    embedding       BLOB,
+    fact_type       TEXT DEFAULT 'episodic',
+    importance      INTEGER DEFAULT 5,
+    reflected       INTEGER DEFAULT 0,
+    superseded_by   INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS fact_sources (
+    derived_fact_id INTEGER REFERENCES facts(fact_id),
+    source_fact_id  INTEGER REFERENCES facts(fact_id),
+    PRIMARY KEY (derived_fact_id, source_fact_id)
 );
 
 CREATE TABLE IF NOT EXISTS entities (
@@ -118,15 +129,19 @@ class MemoryStore:
         db_path: "str | Path | None" = None,
         default_trust: float = 0.5,
         hrr_dim: int = 1024,
+        embedder: "object | None" = None,
     ) -> None:
         if db_path is None:
-            from hermes_constants import get_hermes_home
-            db_path = str(get_hermes_home() / "memory_store.db")
+            from hercules_constants import get_hercules_home
+            db_path = str(get_hercules_home() / "memory_store.db")
         self.db_path = Path(db_path).expanduser()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.default_trust = _clamp_trust(default_trust)
         self.hrr_dim = hrr_dim
         self._hrr_available = hrr._HAS_NUMPY
+        # Optional semantic embedder. When None/disabled, the store behaves
+        # exactly as before (lexical + HRR only).
+        self.embedder = embedder
 
         # Acquire (or open) the process-wide shared connection for this DB.
         # resolve() (not just expanduser) so symlinked/relative paths to the
@@ -170,15 +185,25 @@ class MemoryStore:
     def _init_db(self) -> None:
         """Create tables, indexes, and triggers if they do not exist. Enable WAL mode."""
         # Use the shared WAL-fallback helper so memory_store.db degrades
-        # gracefully on NFS/SMB/FUSE-mounted HERMES_HOME (same issue as
-        # state.db / kanban.db — see hermes_state._WAL_INCOMPAT_MARKERS).
-        from hermes_state import apply_wal_with_fallback
+        # gracefully on NFS/SMB/FUSE-mounted HERCULES_HOME (same issue as
+        # state.db / kanban.db — see hercules_state._WAL_INCOMPAT_MARKERS).
+        from hercules_state import apply_wal_with_fallback
         apply_wal_with_fallback(self._conn, db_label="memory_store.db (holographic)")
         self._conn.executescript(_SCHEMA)
-        # Migrate: add hrr_vector column if missing (safe for existing databases)
+        # Migrate: add newer columns if missing (safe for existing databases).
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(facts)").fetchall()}
         if "hrr_vector" not in columns:
             self._conn.execute("ALTER TABLE facts ADD COLUMN hrr_vector BLOB")
+        if "embedding" not in columns:
+            self._conn.execute("ALTER TABLE facts ADD COLUMN embedding BLOB")
+        if "fact_type" not in columns:
+            self._conn.execute("ALTER TABLE facts ADD COLUMN fact_type TEXT DEFAULT 'episodic'")
+        if "superseded_by" not in columns:
+            self._conn.execute("ALTER TABLE facts ADD COLUMN superseded_by INTEGER")
+        if "importance" not in columns:
+            self._conn.execute("ALTER TABLE facts ADD COLUMN importance INTEGER DEFAULT 5")
+        if "reflected" not in columns:
+            self._conn.execute("ALTER TABLE facts ADD COLUMN reflected INTEGER DEFAULT 0")
         self._conn.commit()
 
     # ------------------------------------------------------------------
@@ -190,13 +215,20 @@ class MemoryStore:
         content: str,
         category: str = "general",
         tags: str = "",
+        fact_type: str = "episodic",
+        importance: int = 5,
     ) -> int:
         """Insert a fact and return its fact_id.
 
         Deduplicates by content (UNIQUE constraint). On duplicate, returns
         the existing fact_id without modifying the row. Extracts entities from
-        the content and links them to the fact.
+        the content and links them to the fact. ``fact_type`` is "profile" for
+        durable identity/preferences (always surfaced, never decayed) or
+        "episodic" for everything else. ``importance`` (1–10) weights the fact
+        in retrieval — significant facts outrank incidental ones.
         """
+        fact_type = "profile" if fact_type == "profile" else "episodic"
+        importance = max(1, min(10, int(importance)))
         with self._lock:
             content = content.strip()
             if not content:
@@ -205,10 +237,10 @@ class MemoryStore:
             try:
                 cur = self._conn.execute(
                     """
-                    INSERT INTO facts (content, category, tags, trust_score)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO facts (content, category, tags, trust_score, fact_type, importance)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (content, category, tags, self.default_trust),
+                    (content, category, tags, self.default_trust, fact_type, importance),
                 )
                 self._conn.commit()
                 fact_id: int = cur.lastrowid  # type: ignore[assignment]
@@ -226,6 +258,8 @@ class MemoryStore:
 
             # Compute HRR vector after entity linking
             self._compute_hrr_vector(fact_id, content)
+            # Compute the semantic embedding (no-op when no embedder).
+            self._compute_embedding(fact_id, content)
             self._rebuild_bank(category)
 
             return fact_id
@@ -269,6 +303,7 @@ class MemoryStore:
                 JOIN facts_fts fts ON fts.rowid = f.fact_id
                 WHERE facts_fts MATCH ?
                   AND f.trust_score >= ?
+                  AND f.superseded_by IS NULL
                   {category_clause}
                 ORDER BY fts.rank, f.trust_score DESC
                 LIMIT ?
@@ -302,10 +337,12 @@ class MemoryStore:
         """
         with self._lock:
             row = self._conn.execute(
-                "SELECT fact_id, trust_score FROM facts WHERE fact_id = ?", (fact_id,)
+                "SELECT fact_id, trust_score, category FROM facts WHERE fact_id = ?",
+                (fact_id,),
             ).fetchone()
             if row is None:
                 return False
+            old_category = row["category"]
 
             assignments: list[str] = ["updated_at = CURRENT_TIMESTAMP"]
             params: list = []
@@ -341,14 +378,18 @@ class MemoryStore:
                     self._link_fact_entity(fact_id, entity_id)
                 self._conn.commit()
 
-            # Recompute HRR vector if content changed
+            # Recompute HRR vector + semantic embedding if content changed
             if content is not None:
                 self._compute_hrr_vector(fact_id, content)
-            # Rebuild bank for relevant category
-            cat = category or self._conn.execute(
-                "SELECT category FROM facts WHERE fact_id = ?", (fact_id,)
-            ).fetchone()["category"]
-            self._rebuild_bank(cat)
+                self._compute_embedding(fact_id, content)
+            # Rebuild the bank for the fact's (possibly new) category. When the
+            # category changed, the OLD category's bank must also be rebuilt —
+            # otherwise it keeps this fact's vector even though the fact no
+            # longer belongs to it, skewing that bank's compositional queries.
+            new_category = category if category is not None else old_category
+            self._rebuild_bank(new_category)
+            if category is not None and category != old_category:
+                self._rebuild_bank(old_category)
 
             return True
 
@@ -389,9 +430,11 @@ class MemoryStore:
 
             sql = f"""
                 SELECT fact_id, content, category, tags, trust_score,
-                       retrieval_count, helpful_count, created_at, updated_at
+                       retrieval_count, helpful_count, created_at, updated_at,
+                       fact_type
                 FROM facts
                 WHERE trust_score >= ?
+                  AND superseded_by IS NULL
                   {category_clause}
                 ORDER BY trust_score DESC
                 LIMIT ?
@@ -441,6 +484,312 @@ class MemoryStore:
             }
 
     # ------------------------------------------------------------------
+    # Consolidation / typed memory
+    # ------------------------------------------------------------------
+
+    def supersede_fact(self, old_id: int, new_id: int) -> bool:
+        """Mark ``old_id`` as superseded by ``new_id`` (reality changed).
+
+        A superseded fact is excluded from all retrieval but kept on disk for
+        audit/undo. Its trust is also dropped so any stale cached reference
+        deprioritizes it. Returns True if the old fact existed.
+        """
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT fact_id, category FROM facts WHERE fact_id = ?", (old_id,)
+            ).fetchone()
+            if row is None:
+                return False
+            self._conn.execute(
+                "UPDATE facts SET superseded_by = ?, trust_score = MIN(trust_score, 0.1), "
+                "updated_at = CURRENT_TIMESTAMP WHERE fact_id = ?",
+                (new_id, old_id),
+            )
+            self._conn.commit()
+            # Drop the retired fact out of its category's HRR bank.
+            self._rebuild_bank(row["category"])
+            return True
+
+    def list_profile_facts(self, limit: int = 30) -> list[dict]:
+        """Durable 'profile' facts, highest-trust first (for always-on context)."""
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT fact_id, content, category, tags, trust_score,
+                       retrieval_count, helpful_count, created_at, updated_at, fact_type
+                FROM facts
+                WHERE fact_type = 'profile' AND superseded_by IS NULL
+                ORDER BY trust_score DESC, updated_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return [self._row_to_dict(r) for r in rows]
+
+    def semantic_neighbors(
+        self, content: str, k: int = 5, min_sim: float = 0.80
+    ) -> list[dict]:
+        """Return the ``k`` most semantically-similar live facts to ``content``.
+
+        Powers consolidation: before adding a fact we check whether it
+        duplicates or updates an existing one. Requires an active embedder;
+        returns [] otherwise (callers then fall back to plain insert).
+        """
+        embedder = getattr(self, "embedder", None)
+        if embedder is None or not getattr(embedder, "enabled", False):
+            return []
+        try:
+            qvec = embedder.embed_one(content)
+        except Exception:
+            return []
+        if not qvec:
+            return []
+        from .embeddings import bytes_to_vec, cosine
+
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT fact_id, content, embedding FROM facts "
+                "WHERE embedding IS NOT NULL AND superseded_by IS NULL"
+            ).fetchall()
+        scored = []
+        for r in rows:
+            sim = cosine(qvec, bytes_to_vec(r["embedding"]))
+            if sim >= min_sim:
+                scored.append((sim, {"fact_id": r["fact_id"], "content": r["content"], "similarity": sim}))
+        scored.sort(key=lambda t: t[0], reverse=True)
+        return [d for _s, d in scored[:k]]
+
+    def add_fact_curated(
+        self,
+        content: str,
+        category: str = "general",
+        tags: str = "",
+        fact_type: str = "episodic",
+        reconciler: "object | None" = None,
+        importance: int = 5,
+    ) -> dict:
+        """Add a fact with consolidation: dedup + supersede via ``reconciler``.
+
+        Checks semantically-similar existing facts and asks ``reconciler`` (a
+        ``MemoryLLM``-like object with ``.reconcile(new, candidates)``) whether
+        the new fact is a duplicate (skip), an update (supersede the target), or
+        independent (insert). Falls back to a plain insert when no embedder /
+        reconciler is available. Returns
+        ``{"action", "fact_id", "superseded": [ids]}``.
+        """
+        content = content.strip()
+        if not content:
+            raise ValueError("content must not be empty")
+
+        neighbors = self.semantic_neighbors(content, k=5, min_sim=0.82)
+
+        # Exact/near-exact duplicate short-circuit (no LLM needed).
+        for n in neighbors:
+            if n.get("similarity", 0.0) >= 0.985 or n["content"].strip().lower() == content.lower():
+                return {"action": "duplicate", "fact_id": n["fact_id"], "superseded": []}
+
+        decision = None
+        if neighbors and reconciler is not None and getattr(reconciler, "enabled", False):
+            try:
+                decision = reconciler.reconcile(content, neighbors)
+            except Exception:
+                decision = None
+
+        if decision and decision.get("action") == "duplicate":
+            target = decision.get("target_fact_id") or (neighbors[0]["fact_id"] if neighbors else None)
+            return {"action": "duplicate", "fact_id": target, "superseded": []}
+
+        # Insert the new fact.
+        new_id = self.add_fact(
+            content, category=category, tags=tags, fact_type=fact_type, importance=importance
+        )
+
+        superseded: list[int] = []
+        if decision and decision.get("action") == "update":
+            target = decision.get("target_fact_id")
+            valid_targets = {n["fact_id"] for n in neighbors}
+            if target in valid_targets and target != new_id:
+                if self.supersede_fact(target, new_id):
+                    superseded.append(target)
+
+        return {"action": "update" if superseded else "new", "fact_id": new_id, "superseded": superseded}
+
+    # ------------------------------------------------------------------
+    # Reflection / importance
+    # ------------------------------------------------------------------
+
+    def set_importance(self, fact_id: int, importance: int) -> bool:
+        """Set a fact's importance (1–10). Returns True if the row existed."""
+        importance = max(1, min(10, int(importance)))
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE facts SET importance = ? WHERE fact_id = ?", (importance, fact_id)
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def select_unreflected_facts(self, limit: int = 40) -> list[dict]:
+        """Live episodic facts not yet folded into a reflection.
+
+        Ordered by importance then recency so a reflection pass reasons over the
+        most significant recent experience first.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT fact_id, content, category, importance, created_at
+                FROM facts
+                WHERE reflected = 0
+                  AND superseded_by IS NULL
+                  AND fact_type = 'episodic'
+                ORDER BY importance DESC, created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return [self._row_to_dict(r) for r in rows]
+
+    def mark_reflected(self, fact_ids: list) -> None:
+        """Flag facts as already considered by a reflection pass."""
+        if not fact_ids:
+            return
+        with self._lock:
+            placeholders = ",".join("?" * len(fact_ids))
+            self._conn.execute(
+                f"UPDATE facts SET reflected = 1 WHERE fact_id IN ({placeholders})",
+                list(fact_ids),
+            )
+            self._conn.commit()
+
+    def add_derived_fact(
+        self,
+        content: str,
+        category: str = "insight",
+        source_ids: "list | None" = None,
+        importance: int = 8,
+    ) -> int:
+        """Store a reflection-derived insight as a durable 'profile' fact and
+        record its provenance (which source facts it was synthesized from).
+
+        Returns the derived fact_id (or the existing id if the content already
+        exists). Insights are high-importance by default — they are the store's
+        considered beliefs, not raw observations.
+        """
+        fact_id = self.add_fact(
+            content, category=category, fact_type="profile", importance=importance
+        )
+        if source_ids:
+            with self._lock:
+                for sid in source_ids:
+                    try:
+                        self._conn.execute(
+                            "INSERT OR IGNORE INTO fact_sources (derived_fact_id, source_fact_id) "
+                            "VALUES (?, ?)",
+                            (fact_id, int(sid)),
+                        )
+                    except (ValueError, TypeError, sqlite3.Error):
+                        continue
+                self._conn.commit()
+        return fact_id
+
+    def get_fact_sources(self, fact_id: int) -> list[dict]:
+        """Return the evidence facts a derived insight was synthesized from.
+
+        Powers "why do you believe that?" — the provenance chain behind an
+        insight.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT f.fact_id, f.content, f.category, f.created_at
+                FROM fact_sources fs
+                JOIN facts f ON f.fact_id = fs.source_fact_id
+                WHERE fs.derived_fact_id = ?
+                """,
+                (fact_id,),
+            ).fetchall()
+            return [self._row_to_dict(r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Graph reasoning (multi-hop entity association)
+    # ------------------------------------------------------------------
+
+    def graph_recall(
+        self,
+        entity_names: list,
+        hops: int = 2,
+        limit: int = 20,
+    ) -> list[dict]:
+        """Associative recall over the fact↔entity graph.
+
+        Starting from ``entity_names``, walk the ``fact_entities`` graph up to
+        ``hops`` steps: a seed entity's facts, then the entities those facts
+        co-mention, then *their* facts, and so on. Answers "what do I know about
+        X and everything connected to X" — associative recall a flat store
+        can't do. Each result carries a ``hop`` distance (1 = directly about a
+        seed entity). Superseded facts are excluded; results are ordered closest
+        (lowest hop) then most-trusted first.
+        """
+        hops = max(1, int(hops))
+        with self._lock:
+            seeds: set[int] = set()
+            for name in entity_names:
+                name = str(name or "").strip()
+                if not name:
+                    continue
+                row = self._conn.execute(
+                    "SELECT entity_id FROM entities WHERE name = ? COLLATE NOCASE", (name,)
+                ).fetchone()
+                if row is not None:
+                    seeds.add(int(row["entity_id"]))
+            if not seeds:
+                return []
+
+            visited_entities = set(seeds)
+            frontier = set(seeds)
+            collected: dict[int, dict] = {}
+
+            for hop in range(1, hops + 1):
+                if not frontier:
+                    break
+                fe_ph = ",".join("?" * len(frontier))
+                rows = self._conn.execute(
+                    f"""
+                    SELECT DISTINCT f.fact_id, f.content, f.category, f.tags,
+                           f.trust_score, f.importance
+                    FROM facts f
+                    JOIN fact_entities fe ON fe.fact_id = f.fact_id
+                    WHERE fe.entity_id IN ({fe_ph}) AND f.superseded_by IS NULL
+                    """,
+                    list(frontier),
+                ).fetchall()
+                new_ids: list[int] = []
+                for r in rows:
+                    fid = int(r["fact_id"])
+                    if fid not in collected:
+                        d = self._row_to_dict(r)
+                        d["hop"] = hop
+                        collected[fid] = d
+                        new_ids.append(fid)
+                # Expand the frontier to entities co-mentioned in the new facts.
+                if new_ids and hop < hops:
+                    f_ph = ",".join("?" * len(new_ids))
+                    erows = self._conn.execute(
+                        f"SELECT DISTINCT entity_id FROM fact_entities WHERE fact_id IN ({f_ph})",
+                        new_ids,
+                    ).fetchall()
+                    next_frontier = {int(er["entity_id"]) for er in erows} - visited_entities
+                    visited_entities |= next_frontier
+                    frontier = next_frontier
+                else:
+                    frontier = set()
+
+            results = sorted(
+                collected.values(), key=lambda d: (d["hop"], -d.get("trust_score", 0.0))
+            )
+            return results[:limit]
+
+    # ------------------------------------------------------------------
     # Entity helpers
     # ------------------------------------------------------------------
 
@@ -484,20 +833,27 @@ class MemoryStore:
 
         Returns the entity_id.
         """
-        # Exact name match
+        # Exact (case-insensitive) name match. Use `= ? COLLATE NOCASE`, not
+        # LIKE: a LIKE pattern lets `%`/`_` in an extracted entity name (e.g. a
+        # quoted "100%") wildcard-match unrelated entities, silently merging
+        # distinct entities and corrupting the fact→entity graph.
         row = self._conn.execute(
-            "SELECT entity_id FROM entities WHERE name LIKE ?", (name,)
+            "SELECT entity_id FROM entities WHERE name = ? COLLATE NOCASE", (name,)
         ).fetchone()
         if row is not None:
             return int(row["entity_id"])
 
-        # Search aliases — aliases stored as comma-separated; use LIKE with % boundaries
+        # Search aliases — stored comma-separated; a LIKE membership check
+        # against ',<aliases>,'. Escape LIKE metacharacters in `name` (and add
+        # ESCAPE) so a name containing `%`/`_` matches literally instead of as
+        # a wildcard.
+        safe_name = name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         alias_row = self._conn.execute(
-            """
+            r"""
             SELECT entity_id FROM entities
-            WHERE ',' || aliases || ',' LIKE '%,' || ? || ',%'
+            WHERE ',' || aliases || ',' LIKE '%,' || ? || ',%' ESCAPE '\'
             """,
-            (name,),
+            (safe_name,),
         ).fetchone()
         if alias_row is not None:
             return int(alias_row["entity_id"])
@@ -541,6 +897,31 @@ class MemoryStore:
             self._conn.execute(
                 "UPDATE facts SET hrr_vector = ? WHERE fact_id = ?",
                 (hrr.phases_to_bytes(vector), fact_id),
+            )
+            self._conn.commit()
+
+    def _compute_embedding(self, fact_id: int, content: str) -> None:
+        """Compute and store the semantic embedding for a fact.
+
+        No-op when no embedder is configured or the backend is unavailable —
+        the fact simply has a NULL embedding and retrieval falls back to the
+        lexical + HRR signals for it.
+        """
+        embedder = getattr(self, "embedder", None)
+        if embedder is None or not getattr(embedder, "enabled", False):
+            return
+        try:
+            vec = embedder.embed_one(content)
+        except Exception:
+            return
+        if not vec:
+            return
+        from .embeddings import vec_to_bytes
+
+        with self._lock:
+            self._conn.execute(
+                "UPDATE facts SET embedding = ? WHERE fact_id = ?",
+                (vec_to_bytes(vec), fact_id),
             )
             self._conn.commit()
 

@@ -21,7 +21,7 @@ from gateway.scale_to_zero import (
 )
 
 
-# ── scale_to_zero_enabled (the Labs HERMES_SCALE_TO_ZERO stamp, D11/Q8=A) ────
+# ── scale_to_zero_enabled (the Labs HERCULES_SCALE_TO_ZERO stamp, D11/Q8=A) ────
 
 
 @pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on", " On "])
@@ -74,7 +74,7 @@ def test_relay_only_is_true():
 
 
 def test_no_platform_is_true():
-    # A Chronos-only / no-messaging-platform agent can scale to zero.
+    # A an external scheduler-only / no-messaging-platform agent can scale to zero.
     assert messaging_is_relay_only_or_absent([]) is True
 
 

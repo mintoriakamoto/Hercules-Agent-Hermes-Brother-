@@ -2,8 +2,8 @@
   "version": 1,
   "updated_at": "2026-07-09T18:38:59Z",
   "metadata": {
-    "source": "hermes-agent repo",
-    "docs": "https://hermes-agent.nousresearch.com/docs/reference/model-catalog"
+    "source": "hercules-agent repo",
+    "docs": "https://hercules-agent.nousresearch.com/docs/reference/model-catalog"
   },
   "providers": {
     "openrouter": {

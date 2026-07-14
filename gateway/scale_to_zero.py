@@ -9,7 +9,7 @@ suspend the machine. On Fly, the now-traffic-idle machine is suspended by
 
 Design constraints (decisions.md):
   - Per-instance enable is gated SOLELY by the NAS "Labs" toggle, carried to the
-    gateway as the ``HERMES_SCALE_TO_ZERO`` env stamp (D11/Q8=A). NOT a user
+    gateway as the ``HERCULES_SCALE_TO_ZERO`` env stamp (D11/Q8=A). NOT a user
     config key; ``scale_to_zero.idle_timeout_minutes`` IS config.yaml (D2).
   - Arm only when messaging is relay-only or absent (D1/F6) AND a wakeUrl is
     registered (§3.4(1)) AND the flag is set.
@@ -33,7 +33,7 @@ from typing import Any, Iterable, Optional
 
 # Env flag stamped by NAS when the scaleToZero Labs toggle is on (D11/Q8=A),
 # mirroring how the `relay` feature stamps GATEWAY_RELAY_URL. Truthy values only.
-SCALE_TO_ZERO_ENV = "HERMES_SCALE_TO_ZERO"
+SCALE_TO_ZERO_ENV = "HERCULES_SCALE_TO_ZERO"
 
 # config.yaml default (D2). Behavioural setting -> config, not env.
 DEFAULT_IDLE_TIMEOUT_MINUTES = 5
@@ -42,7 +42,7 @@ _TRUTHY = {"1", "true", "yes", "on"}
 
 
 def scale_to_zero_enabled(environ: Optional[dict] = None) -> bool:
-    """Whether the per-instance Labs toggle is on (the HERMES_SCALE_TO_ZERO stamp).
+    """Whether the per-instance Labs toggle is on (the HERCULES_SCALE_TO_ZERO stamp).
 
     D11/Q8=A: this env flag is the SOLE per-instance enable signal reaching the
     gateway. Absent/blank/falsey -> disabled (fail-safe default off).
@@ -71,7 +71,7 @@ def parse_idle_timeout_seconds(
 
 def messaging_is_relay_only_or_absent(platforms: Iterable[Any]) -> bool:
     """True iff the only connected messaging platform is RELAY, or there is none
-    (a Chronos-only / no-platform agent) — the F6/D1 structural precondition.
+    (an external-scheduler-only / no-platform agent) — the F6/D1 structural precondition.
 
     A directly-connected platform (Discord/Telegram/Slack/...) holds a live
     socket and cannot scale to zero, so its presence disarms the feature. We

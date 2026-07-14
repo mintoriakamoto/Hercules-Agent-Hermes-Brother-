@@ -1,6 +1,6 @@
 import { atom } from 'nanostores'
 
-import { getHermesConfigRecord, saveHermesConfig } from '@/hermes'
+import { getHerculesConfigRecord, saveHerculesConfig } from '@/hercules'
 
 // "Read replies aloud" — mirrors the canonical `voice.auto_tts` config key (also
 // in Settings → Voice, honored by the messaging gateway) so the composer toggle
@@ -27,10 +27,10 @@ export async function setAutoSpeakReplies(enabled: boolean): Promise<void> {
   $autoSpeakReplies.set(enabled)
 
   try {
-    const record = await getHermesConfigRecord()
+    const record = await getHerculesConfigRecord()
     const voice = record.voice && typeof record.voice === 'object' ? (record.voice as Record<string, unknown>) : {}
 
-    await saveHermesConfig({ ...record, voice: { ...voice, auto_tts: enabled } })
+    await saveHerculesConfig({ ...record, voice: { ...voice, auto_tts: enabled } })
   } catch (error) {
     $autoSpeakReplies.set(previous)
     throw error

@@ -8,13 +8,13 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { getElevenLabsVoices, getHermesConfigSchema, saveHermesConfig } from '@/hermes'
+import { getElevenLabsVoices, getHerculesConfigSchema, saveHerculesConfig } from '@/hercules'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { notify, notifyError } from '@/store/notifications'
-import type { ConfigFieldSchema, HermesConfigRecord } from '@/types/hermes'
+import type { ConfigFieldSchema, HerculesConfigRecord } from '@/types/hercules'
 
-import { setHermesConfigCache, useHermesConfigRecord } from '../hooks/use-config-record'
+import { setHerculesConfigCache, useHerculesConfigRecord } from '../hooks/use-config-record'
 import { useOnProfileSwitch } from '../hooks/use-on-profile-switch'
 import { PanelEmpty } from '../overlays/panel'
 
@@ -31,7 +31,7 @@ import { ProviderConfigPanel } from './provider-config-panel'
 // provider — otherwise every provider's options render at once (the "totally
 // crazy" wall of ~30 fields). Top-level keys (tts.provider, stt.enabled,
 // voice.*) always show; STT provider fields hide entirely when STT is off.
-export function voiceFieldVisible(key: string, config: HermesConfigRecord): boolean {
+export function voiceFieldVisible(key: string, config: HerculesConfigRecord): boolean {
   const match = /^(tts|stt)\.([^.]+)\./.exec(key)
 
   if (!match) {
@@ -236,16 +236,16 @@ export function ConfigSettings({
   // The editable draft is local (debounced autosave watches it), but it's seeded
   // from — and saved back through — the shared config cache, so edits are visible
   // in the MCP/model surfaces and reopening the page doesn't reload-flash.
-  const [config, setConfig] = useState<HermesConfigRecord | null>(null)
-  const { data: loadedConfig, isError: configLoadFailed, refetch: refetchConfig } = useHermesConfigRecord()
+  const [config, setConfig] = useState<HerculesConfigRecord | null>(null)
+  const { data: loadedConfig, isError: configLoadFailed, refetch: refetchConfig } = useHerculesConfigRecord()
 
   const {
     data: schemaResponse,
     isError: schemaFailed,
     refetch: refetchSchema
   } = useQuery({
-    queryKey: ['hermes-config-schema'],
-    queryFn: getHermesConfigSchema,
+    queryKey: ['hercules-config-schema'],
+    queryFn: getHerculesConfigSchema,
     staleTime: 5 * 60 * 1000
   })
 
@@ -309,10 +309,10 @@ export function ConfigSettings({
     const t = window.setTimeout(() => {
       void (async () => {
         try {
-          await saveHermesConfig(config)
+          await saveHerculesConfig(config)
           // Mirror the saved record into the shared cache so MCP/model surfaces
           // reflect the edit without their own refetch.
-          setHermesConfigCache(config)
+          setHerculesConfigCache(config)
 
           if (saveVersionRef.current === v) {
             onConfigSaved?.()
@@ -329,7 +329,7 @@ export function ConfigSettings({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- copy is stable; avoid re-scheduling autosave on locale change
   }, [config, onConfigSaved, saveVersion])
 
-  const updateConfig = (next: HermesConfigRecord) => {
+  const updateConfig = (next: HerculesConfigRecord) => {
     saveVersionRef.current += 1
     setConfig(next)
     setSaveVersion(saveVersionRef.current)

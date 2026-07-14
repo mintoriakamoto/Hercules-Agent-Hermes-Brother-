@@ -11,7 +11,7 @@ from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
-from hermes_constants import get_hermes_home
+from hercules_constants import get_hercules_home
 from tools.tool_backend_helpers import managed_nous_tools_enabled
 
 _DEFAULT_TOOL_GATEWAY_DOMAIN = "nousresearch.com"
@@ -28,8 +28,8 @@ class ManagedToolGatewayConfig:
 
 
 def auth_json_path():
-    """Return the Hermes auth store path, respecting HERMES_HOME overrides."""
-    return get_hermes_home() / "auth.json"
+    """Return the Hercules auth store path, respecting HERCULES_HOME overrides."""
+    return get_hercules_home() / "auth.json"
 
 
 def _read_nous_provider_state() -> Optional[dict]:
@@ -75,7 +75,7 @@ def _access_token_is_expiring(expires_at: object, skew_seconds: int) -> bool:
 def peek_nous_access_token() -> Optional[str]:
     """Cheap probe for a Nous gateway token without triggering refresh.
 
-    Availability scans (`hermes tools`, banner/status paint, provider
+    Availability scans (`hercules tools`, banner/status paint, provider
     `is_available()` checks) must stay off the synchronous OAuth refresh path.
     This helper therefore only inspects the explicit env override and the
     cached auth-store token, without checking expiry and without making any
@@ -101,23 +101,10 @@ def read_nous_access_token() -> Optional[str]:
     nous_provider = _read_nous_provider_state() or {}
     cached_token = peek_nous_access_token()
 
-    if cached_token and not _access_token_is_expiring(
-        nous_provider.get("expires_at"),
-        _NOUS_ACCESS_TOKEN_REFRESH_SKEW_SECONDS,
-    ):
-        return cached_token
-
-    try:
-        from hermes_cli.auth import resolve_nous_access_token
-
-        refreshed_token = resolve_nous_access_token(
-            refresh_skew_seconds=_NOUS_ACCESS_TOKEN_REFRESH_SKEW_SECONDS,
-        )
-        if isinstance(refreshed_token, str) and refreshed_token.strip():
-            return refreshed_token.strip()
-    except Exception as exc:
-        logger.debug("Nous access token refresh failed: %s", exc)
-
+    # The refresh-aware token path was removed with the Nous provider. Without
+    # an explicit TOOL_GATEWAY_USER_TOKEN or a valid cached token the managed
+    # gateway is simply not ready and callers fall back to direct/API-key
+    # backends.
     return cached_token
 
 

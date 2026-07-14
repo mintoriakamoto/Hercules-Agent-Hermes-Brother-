@@ -211,7 +211,7 @@ def test_no_arm_when_a_direct_platform_is_actually_enabled(monkeypatch):
 
 
 def test_arm_when_no_platform_enabled_at_all(monkeypatch):
-    """Chronos-only / no-messaging agent (all placeholders disabled) can scale to zero."""
+    """an external scheduler-only / no-messaging agent (all placeholders disabled) can scale to zero."""
     from gateway.platforms.base import Platform
 
     r = _arm_runner(

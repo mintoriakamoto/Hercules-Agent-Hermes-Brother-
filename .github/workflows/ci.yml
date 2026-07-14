@@ -137,6 +137,12 @@ jobs:
   all-checks-pass:
     name: All required checks pass
     needs:
+      # detect MUST be listed: every lane below has `needs: detect`, so a
+      # failed/errored detect job skips them all. Without detect here, the
+      # gate would see only `skipped` results and report green with zero
+      # validation run — a merge-gate bypass. Listing it means detect's own
+      # `failure` result is caught by the evaluator below.
+      - detect
       - tests
       - lint
       - typecheck

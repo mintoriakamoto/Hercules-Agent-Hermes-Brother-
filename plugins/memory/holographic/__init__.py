@@ -1,18 +1,42 @@
-"""hermes-memory-store — holographic memory plugin using MemoryProvider interface.
+"""hercules-memory-store — holographic memory plugin using MemoryProvider interface.
 
 Registers as a MemoryProvider plugin, giving the agent structured fact storage
 with entity resolution, trust scoring, and HRR-based compositional retrieval.
 
 Original plugin by dusterbloom (PR #2351), adapted to the MemoryProvider ABC.
 
-Config in $HERMES_HOME/config.yaml (profile-scoped):
+Retrieval blends four signals — FTS5 keyword match, Jaccard token overlap,
+HRR compositional structure, and (when enabled) dense semantic embeddings —
+weighted by trust and gently decayed by recency.
+
+Config in $HERCULES_HOME/config.yaml (profile-scoped):
   plugins:
-    hermes-memory-store:
-      db_path: $HERMES_HOME/memory_store.db   # omit to use the default
+    hercules-memory-store:
+      db_path: $HERCULES_HOME/memory_store.db   # omit to use the default
       auto_extract: false
       default_trust: 0.5
       min_trust_threshold: 0.3
-      temporal_decay_half_life: 0
+      temporal_decay_half_life: 180   # days; 0 disables recency decay
+      # Semantic embeddings (meaning-based recall, not just keywords). Auto-
+      # enables when embedding_api_key_env / a base_url is set, or when
+      # OPENAI_API_KEY is present. Omit everything to stay lexical-only.
+      embedding_enabled: true         # tri-state: omit = auto, false = force off
+      embedding_model: text-embedding-3-small
+      embedding_dims: 1536
+      embedding_base_url: ""          # e.g. a local vLLM/Ollama /v1 endpoint
+      embedding_api_key_env: OPENAI_API_KEY
+      # LLM curation: salience extraction (clean atomic facts from a session),
+      # dedup + supersede-on-contradiction, and HyDE query expansion. Auto-
+      # enables like embeddings; omit to stay heuristic-only.
+      curation_enabled: true          # tri-state: omit = auto, false = force off
+      curation_model: gpt-4o-mini
+      curation_base_url: ""
+      curation_api_key_env: OPENAI_API_KEY
+      profile_inject_limit: 15        # durable 'profile' facts injected each turn
+      # Reflection: at session end, fold recent observations into higher-order
+      # insights promoted to durable 'profile' memory (with provenance links).
+      # Auto-on when curation is enabled; also runnable via fact_store(reflect).
+      auto_reflect: true
 """
 
 from __future__ import annotations
@@ -26,7 +50,7 @@ from agent.memory_provider import MemoryProvider
 from tools.registry import tool_error
 from .store import MemoryStore
 from .retrieval import FactRetriever
-from hermes_cli.config import cfg_get
+from hercules_cli.config import cfg_get
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +80,7 @@ FACT_STORE_SCHEMA = {
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["add", "search", "probe", "related", "reason", "contradict", "update", "remove", "list"],
+                "enum": ["add", "search", "probe", "related", "reason", "contradict", "update", "remove", "list", "reflect", "why", "graph"],
             },
             "content": {"type": "string", "description": "Fact content (required for 'add')."},
             "query": {"type": "string", "description": "Search query (required for 'search')."},
@@ -95,15 +119,15 @@ FACT_FEEDBACK_SCHEMA = {
 # ---------------------------------------------------------------------------
 
 def _load_plugin_config() -> dict:
-    from hermes_constants import get_hermes_home
-    config_path = get_hermes_home() / "config.yaml"
+    from hercules_constants import get_hercules_home
+    config_path = get_hercules_home() / "config.yaml"
     if not config_path.exists():
         return {}
     try:
         import yaml
         with open(config_path, encoding="utf-8-sig") as f:
             all_config = yaml.safe_load(f) or {}
-        return cfg_get(all_config, "plugins", "hermes-memory-store", default={}) or {}
+        return cfg_get(all_config, "plugins", "hercules-memory-store", default={}) or {}
     except Exception:
         return {}
 
@@ -128,10 +152,10 @@ class HolographicMemoryProvider(MemoryProvider):
     def is_available(self) -> bool:
         return True  # SQLite is always available, numpy is optional
 
-    def save_config(self, values, hermes_home):
-        """Write config to config.yaml under plugins.hermes-memory-store."""
+    def save_config(self, values, hercules_home):
+        """Write config to config.yaml under plugins.hercules-memory-store."""
         from pathlib import Path
-        config_path = Path(hermes_home) / "config.yaml"
+        config_path = Path(hercules_home) / "config.yaml"
         try:
             import yaml
             existing = {}
@@ -139,15 +163,15 @@ class HolographicMemoryProvider(MemoryProvider):
                 with open(config_path, encoding="utf-8-sig") as f:
                     existing = yaml.safe_load(f) or {}
             existing.setdefault("plugins", {})
-            existing["plugins"]["hermes-memory-store"] = values
+            existing["plugins"]["hercules-memory-store"] = values
             with open(config_path, "w", encoding="utf-8") as f:
                 yaml.dump(existing, f, default_flow_style=False)
         except Exception:
             pass
 
     def get_config_schema(self):
-        from hermes_constants import display_hermes_home
-        _default_db = f"{display_hermes_home()}/memory_store.db"
+        from hercules_constants import display_hercules_home
+        _default_db = f"{display_hercules_home()}/memory_store.db"
         return [
             {"key": "db_path", "description": "SQLite database path", "default": _default_db},
             {"key": "auto_extract", "description": "Auto-extract facts at session end", "default": "false", "choices": ["true", "false"]},
@@ -156,27 +180,60 @@ class HolographicMemoryProvider(MemoryProvider):
         ]
 
     def initialize(self, session_id: str, **kwargs) -> None:
-        from hermes_constants import get_hermes_home
-        _hermes_home = str(get_hermes_home())
-        _default_db = _hermes_home + "/memory_store.db"
+        from hercules_constants import get_hercules_home
+        _hercules_home = str(get_hercules_home())
+        _default_db = _hercules_home + "/memory_store.db"
         db_path = self._config.get("db_path", _default_db)
-        # Expand $HERMES_HOME in user-supplied paths so config values like
-        # "$HERMES_HOME/memory_store.db" or "~/.hermes/memory_store.db" both
+        # Expand $HERCULES_HOME in user-supplied paths so config values like
+        # "$HERCULES_HOME/memory_store.db" or "~/.hercules/memory_store.db" both
         # resolve to the active profile's directory.
         if isinstance(db_path, str):
-            db_path = db_path.replace("$HERMES_HOME", _hermes_home)
-            db_path = db_path.replace("${HERMES_HOME}", _hermes_home)
+            db_path = db_path.replace("$HERCULES_HOME", _hercules_home)
+            db_path = db_path.replace("${HERCULES_HOME}", _hercules_home)
         default_trust = float(self._config.get("default_trust", 0.5))
         hrr_dim = int(self._config.get("hrr_dim", 1024))
         hrr_weight = float(self._config.get("hrr_weight", 0.3))
-        temporal_decay = int(self._config.get("temporal_decay_half_life", 0))
+        # Recency: gentle temporal decay so stale facts fade below fresh ones.
+        # Default 180-day half-life (was 0/off) — old but still-trusted facts
+        # keep ~70% weight after a year, so nothing is lost, just deprioritized.
+        temporal_decay = int(self._config.get("temporal_decay_half_life", 180))
 
-        self._store = MemoryStore(db_path=db_path, default_trust=default_trust, hrr_dim=hrr_dim)
+        # Optional semantic embedder (auto-enables when an embedding backend is
+        # configured or OPENAI_API_KEY is present; graceful lexical fallback
+        # otherwise). Turns retrieval from keyword-match into meaning-match.
+        embedder = None
+        try:
+            from .embeddings import Embedder
+
+            embedder = Embedder.from_config(self._config)
+            if getattr(embedder, "enabled", False):
+                logger.info("holographic memory: semantic embeddings enabled (model=%s)", embedder.model)
+        except Exception as exc:
+            logger.debug("holographic memory: embedder init skipped: %s", exc)
+            embedder = None
+
+        # Optional curation LLM: salience extraction, dedup/supersede
+        # reconciliation, and HyDE query expansion. Graceful no-op when off.
+        self._llm = None
+        try:
+            from .llm import MemoryLLM
+
+            self._llm = MemoryLLM.from_config(self._config)
+            if getattr(self._llm, "enabled", False):
+                logger.info("holographic memory: LLM curation enabled (model=%s)", self._llm.model)
+        except Exception as exc:
+            logger.debug("holographic memory: LLM init skipped: %s", exc)
+            self._llm = None
+
+        self._store = MemoryStore(
+            db_path=db_path, default_trust=default_trust, hrr_dim=hrr_dim, embedder=embedder
+        )
         self._retriever = FactRetriever(
             store=self._store,
             temporal_decay_half_life=temporal_decay,
             hrr_weight=hrr_weight,
             hrr_dim=hrr_dim,
+            embedder=embedder,
         )
         self._session_id = session_id
 
@@ -196,18 +253,47 @@ class HolographicMemoryProvider(MemoryProvider):
                 "Use fact_store(action='add') to store durable structured facts about people, projects, preferences, decisions.\n"
                 "Use fact_feedback to rate facts after using them (trains trust scores)."
             )
-        return (
+        block = (
             f"# Holographic Memory\n"
             f"Active. {total} facts stored with entity resolution and trust scoring.\n"
             f"Use fact_store to search, probe entities, reason across entities, or add facts.\n"
             f"Use fact_feedback to rate facts after using them (trains trust scores)."
         )
+        # Always-on durable context: 'profile' facts (identity, stable
+        # preferences) are injected every turn rather than waiting to be
+        # recalled, since they apply regardless of the current query.
+        try:
+            profile = self._store.list_profile_facts(limit=int(self._config.get("profile_inject_limit", 15)))
+        except Exception:
+            profile = []
+        if profile:
+            lines = "\n".join(f"- {p.get('content', '')}" for p in profile)
+            block += "\n\n## Known profile (durable)\n" + lines
+        return block
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         if not self._retriever or not query:
             return ""
         try:
             results = self._retriever.search(query, min_trust=self._min_trust, limit=5)
+            # HyDE: a vague message ("what did we decide?") often shares little
+            # with the stored fact. When curation is on, also search an
+            # LLM-rewritten query and merge, so recall doesn't hinge on phrasing.
+            llm = getattr(self, "_llm", None)
+            if llm is not None and getattr(llm, "enabled", False):
+                try:
+                    expanded = llm.expand_query(query)
+                except Exception:
+                    expanded = None
+                if expanded and expanded.strip().lower() != query.strip().lower():
+                    extra = self._retriever.search(expanded, min_trust=self._min_trust, limit=5)
+                    seen = {r.get("fact_id") for r in results}
+                    for r in extra:
+                        if r.get("fact_id") not in seen:
+                            seen.add(r.get("fact_id"))
+                            results.append(r)
+                    results.sort(key=lambda r: r.get("score", 0.0), reverse=True)
+                    results = results[:5]
             if not results:
                 return ""
             lines = []
@@ -235,11 +321,68 @@ class HolographicMemoryProvider(MemoryProvider):
         return tool_error(f"Unknown tool: {tool_name}")
 
     def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
-        if not self._config.get("auto_extract", False):
+        if not self._store:
             return
-        if not self._store or not messages:
-            return
-        self._auto_extract_facts(messages)
+        if self._config.get("auto_extract", False) and messages:
+            self._auto_extract_facts(messages)
+        # Reflect after extracting: fold recent observations into higher-order
+        # insights. Auto-on when a curation LLM is available (opt out with
+        # auto_reflect: false); a no-op without the LLM.
+        llm = getattr(self, "_llm", None)
+        auto_reflect = self._config.get("auto_reflect", True)
+        if auto_reflect and llm is not None and getattr(llm, "enabled", False):
+            try:
+                self.reflect()
+            except Exception as exc:
+                logger.debug("Reflection failed: %s", exc)
+
+    def reflect(self, min_facts: int = 5, max_facts: int = 40) -> dict:
+        """Synthesize higher-order insights from recent unreflected observations.
+
+        Reads live episodic facts not yet reflected on, asks the LLM to
+        generalize them into durable insights, promotes each insight to a
+        high-importance 'profile' fact with provenance links to its evidence,
+        and marks the sources reflected. Returns a summary dict. Safe no-op when
+        the LLM is unavailable or there isn't enough new experience yet.
+        """
+        result = {"insights": 0, "sources_considered": 0}
+        store = self._store
+        llm = getattr(self, "_llm", None)
+        if store is None or llm is None or not getattr(llm, "enabled", False):
+            return result
+        facts = store.select_unreflected_facts(limit=max_facts)
+        if len(facts) < max(1, min_facts):
+            return result  # not enough new experience to generalize yet
+        result["sources_considered"] = len(facts)
+        candidates = [{"fact_id": f["fact_id"], "content": f["content"]} for f in facts]
+        try:
+            insights = llm.reflect(candidates)
+        except Exception as exc:
+            logger.debug("LLM reflect failed: %s", exc)
+            insights = None
+        # Mark the window reflected regardless, so a barren pass doesn't re-run
+        # on the same facts every session.
+        store.mark_reflected([f["fact_id"] for f in facts])
+        if not insights:
+            return result
+        valid_ids = {f["fact_id"] for f in facts}
+        made = 0
+        for ins in insights:
+            sources = [s for s in ins.get("source_ids", []) if s in valid_ids]
+            try:
+                store.add_derived_fact(
+                    ins["content"],
+                    category=ins.get("category", "insight"),
+                    source_ids=sources,
+                    importance=int(ins.get("importance", 8)),
+                )
+                made += 1
+            except Exception:
+                continue
+        result["insights"] = made
+        if made:
+            logger.info("Reflection: synthesized %d insight(s) from %d observations", made, len(facts))
+        return result
 
     def on_memory_write(self, action: str, target: str, content: str) -> None:
         """Mirror built-in memory writes as facts."""
@@ -274,12 +417,26 @@ class HolographicMemoryProvider(MemoryProvider):
             retriever = self._retriever
 
             if action == "add":
-                fact_id = store.add_fact(
+                # Curated add: semantic dedup + supersede-on-contradiction so
+                # the store self-maintains instead of accumulating duplicates
+                # and stale facts. Falls back to a plain insert when no
+                # embedder/LLM is available.
+                result = store.add_fact_curated(
                     args["content"],
                     category=args.get("category", "general"),
                     tags=args.get("tags", ""),
+                    fact_type=str(args.get("fact_type", "episodic")),
+                    reconciler=getattr(self, "_llm", None),
                 )
-                return json.dumps({"fact_id": fact_id, "status": "added"})
+                status = {
+                    "duplicate": "already_known",
+                    "update": "updated",
+                    "new": "added",
+                }.get(result["action"], "added")
+                out = {"fact_id": result["fact_id"], "status": status}
+                if result.get("superseded"):
+                    out["superseded"] = result["superseded"]
+                return json.dumps(out)
 
             elif action == "search":
                 results = retriever.search(
@@ -346,6 +503,26 @@ class HolographicMemoryProvider(MemoryProvider):
                 )
                 return json.dumps({"facts": facts, "count": len(facts)})
 
+            elif action == "reflect":
+                # Synthesize durable insights from recent observations now.
+                summary = self.reflect(min_facts=int(args.get("min_facts", 3)))
+                return json.dumps({"status": "reflected", **summary})
+
+            elif action == "why":
+                # Provenance: the evidence facts an insight was synthesized from.
+                sources = store.get_fact_sources(int(args["fact_id"]))
+                return json.dumps({"sources": sources, "count": len(sources)})
+
+            elif action == "graph":
+                # Associative multi-hop recall over the entity graph.
+                seed = args.get("entity") or args.get("query", "")
+                results = retriever.graph_search(
+                    seed,
+                    hops=int(args.get("hops", 2)),
+                    limit=int(args.get("limit", 20)),
+                )
+                return json.dumps({"facts": results, "count": len(results)})
+
             else:
                 return tool_error(f"Unknown action: {action}")
 
@@ -367,7 +544,56 @@ class HolographicMemoryProvider(MemoryProvider):
 
     # -- Auto-extraction (on_session_end) ------------------------------------
 
+    def _llm_extract_facts(self, messages: list, llm) -> bool:
+        """LLM salience extraction → curated writes. Returns True on success.
+
+        Builds a compact transcript, asks the LLM for durable atomic facts, and
+        stores each through ``add_fact_curated`` so extraction, dedup, and
+        supersede all compose. Returns False (caller falls back to regex) if the
+        LLM yields nothing usable.
+        """
+        try:
+            parts = []
+            for msg in messages:
+                role = msg.get("role")
+                content = msg.get("content", "")
+                if role in ("user", "assistant") and isinstance(content, str) and content.strip():
+                    parts.append(f"{role}: {content.strip()}")
+            if not parts:
+                return False
+            transcript = "\n".join(parts)[-6000:]
+            facts = llm.extract_facts(transcript)
+            if facts is None:
+                return False  # LLM unavailable/unparseable → let regex try
+            stored = 0
+            for f in facts:
+                try:
+                    res = self._store.add_fact_curated(
+                        f["content"],
+                        category=f.get("category", "general"),
+                        fact_type=f.get("fact_type", "episodic"),
+                        reconciler=llm,
+                        importance=int(f.get("importance", 5)),
+                    )
+                    if res.get("action") in ("new", "update"):
+                        stored += 1
+                except Exception:
+                    continue
+            logger.info("LLM salience: extracted %d facts (%d new/updated)", len(facts), stored)
+            return True
+        except Exception as exc:
+            logger.debug("LLM salience extraction failed: %s", exc)
+            return False
+
     def _auto_extract_facts(self, messages: list) -> None:
+        # Preferred path: LLM-gated salience extraction — clean, atomic,
+        # typed facts curated into the store (dedup + supersede). Falls back to
+        # the regex heuristics below when no curation LLM is configured.
+        llm = getattr(self, "_llm", None)
+        if llm is not None and getattr(llm, "enabled", False):
+            if self._llm_extract_facts(messages, llm):
+                return
+
         _PREF_PATTERNS = [
             re.compile(r'\bI\s+(?:prefer|like|love|use|want|need)\s+(.+)', re.IGNORECASE),
             re.compile(r'\bmy\s+(?:favorite|preferred|default)\s+\w+\s+is\s+(.+)', re.IGNORECASE),
