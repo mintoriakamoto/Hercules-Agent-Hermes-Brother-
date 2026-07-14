@@ -184,52 +184,46 @@ class TestQuickFlag:
 
 
 class TestFreshInstall:
-    """On a fresh install (no active provider), flags are no-ops."""
+    """On a fresh install (no active provider), flags are no-ops — every
+    entry point drops into the first-time flow: a mode prompt (Full setup vs
+    Blank Slate). Choosing Full setup (choice 0) runs all sections.
+    """
+
+    def _run_and_assert_first_time_full_setup(self, args):
+        with ExitStack() as stack:
+            m = _enter_fresh_install_patches(
+                stack,
+                prompt=("hercules_cli.setup.prompt_choice", {"return_value": 0}),
+                blank="hercules_cli.setup._run_blank_slate_setup",
+                model="hercules_cli.setup.setup_model_provider",
+                terminal="hercules_cli.setup.setup_terminal_backend",
+                gateway="hercules_cli.setup.setup_gateway",
+                tools="hercules_cli.setup.setup_tools",
+                summary="hercules_cli.setup._print_setup_summary",
+            )
+            from hercules_cli.setup import run_setup_wizard
+            run_setup_wizard(args)
+
+        # First-time mode prompt shown exactly once (Full setup vs Blank Slate).
+        m["prompt"].assert_called_once()
+        # Choice 0 = Full setup, so the Blank Slate branch is NOT taken and the
+        # full-wizard sections run.
+        m["blank"].assert_not_called()
+        m["model"].assert_called_once()
+        m["terminal"].assert_called_once()
+        m["gateway"].assert_called_once()
+        m["tools"].assert_called_once()
 
     def test_bare_setup_runs_first_time_flow(self, fresh_install):
-        args = _make_setup_args()
-
-        with ExitStack() as stack:
-            m = _enter_fresh_install_patches(
-                stack,
-                prompt=("hercules_cli.setup.prompt_choice", {"return_value": 0}),
-                first="hercules_cli.setup._run_first_time_quick_setup",
-            )
-            from hercules_cli.setup import run_setup_wizard
-            run_setup_wizard(args)
-
-        m["prompt"].assert_called_once()  # quick-vs-full prompt
-        m["first"].assert_called_once()
+        self._run_and_assert_first_time_full_setup(_make_setup_args())
 
     def test_reconfigure_on_fresh_install_falls_through(self, fresh_install):
-        args = _make_setup_args(reconfigure=True)
-
-        with ExitStack() as stack:
-            m = _enter_fresh_install_patches(
-                stack,
-                prompt=("hercules_cli.setup.prompt_choice", {"return_value": 0}),
-                first="hercules_cli.setup._run_first_time_quick_setup",
-            )
-            from hercules_cli.setup import run_setup_wizard
-            run_setup_wizard(args)
-
-        m["prompt"].assert_called_once()
-        m["first"].assert_called_once()
+        self._run_and_assert_first_time_full_setup(
+            _make_setup_args(reconfigure=True)
+        )
 
     def test_quick_on_fresh_install_falls_through(self, fresh_install):
-        args = _make_setup_args(quick=True)
-
-        with ExitStack() as stack:
-            m = _enter_fresh_install_patches(
-                stack,
-                prompt=("hercules_cli.setup.prompt_choice", {"return_value": 0}),
-                first="hercules_cli.setup._run_first_time_quick_setup",
-            )
-            from hercules_cli.setup import run_setup_wizard
-            run_setup_wizard(args)
-
-        m["prompt"].assert_called_once()
-        m["first"].assert_called_once()
+        self._run_and_assert_first_time_full_setup(_make_setup_args(quick=True))
 
 
 class TestArgparse:
