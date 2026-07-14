@@ -66,14 +66,22 @@ FACT_STORE_SCHEMA = {
         "Use alongside the memory tool — memory for always-on context, "
         "fact_store for deep recall and compositional queries.\n\n"
         "ACTIONS (simple → powerful):\n"
-        "• add — Store a fact the user would expect you to remember.\n"
-        "• search — Keyword lookup ('editor config', 'deploy process').\n"
+        "• add — Store a fact the user would expect you to remember. Auto-dedups "
+        "and supersedes contradicted facts. Set fact_type='profile' for durable "
+        "identity/preferences (always in context), importance 1-10 for weight.\n"
+        "• search — Meaning-aware lookup ('editor config', 'deploy process'); "
+        "recalls by semantics, not just keywords.\n"
         "• probe — Entity recall: ALL facts about a person/thing.\n"
         "• related — What connects to an entity? Structural adjacency.\n"
-        "• reason — Compositional: facts connected to MULTIPLE entities simultaneously.\n"
-        "• contradict — Memory hygiene: find facts making conflicting claims.\n"
+        "• graph — Multi-hop associative recall: facts about an entity AND "
+        "everything connected to it (set hops, default 2).\n"
+        "• reason — Compositional: facts connected to MULTIPLE entities.\n"
+        "• reflect — Synthesize durable insights from recent facts now.\n"
+        "• why — Show the evidence facts an insight was derived from (fact_id).\n"
+        "• contradict — Memory hygiene: find conflicting claims.\n"
         "• update/remove/list — CRUD operations.\n\n"
-        "IMPORTANT: Before answering questions about the user, ALWAYS probe or reason first."
+        "IMPORTANT: Before answering questions about the user, ALWAYS probe, "
+        "graph, or reason first."
     ),
     "parameters": {
         "type": "object",
@@ -83,11 +91,14 @@ FACT_STORE_SCHEMA = {
                 "enum": ["add", "search", "probe", "related", "reason", "contradict", "update", "remove", "list", "reflect", "why", "graph"],
             },
             "content": {"type": "string", "description": "Fact content (required for 'add')."},
-            "query": {"type": "string", "description": "Search query (required for 'search')."},
-            "entity": {"type": "string", "description": "Entity name for 'probe'/'related'."},
+            "query": {"type": "string", "description": "Search query (required for 'search'); also a seed for 'graph'."},
+            "entity": {"type": "string", "description": "Entity name for 'probe'/'related'/'graph'."},
             "entities": {"type": "array", "items": {"type": "string"}, "description": "Entity names for 'reason'."},
-            "fact_id": {"type": "integer", "description": "Fact ID for 'update'/'remove'."},
+            "fact_id": {"type": "integer", "description": "Fact ID for 'update'/'remove'/'why'."},
             "category": {"type": "string", "enum": ["user_pref", "project", "tool", "general"]},
+            "fact_type": {"type": "string", "enum": ["profile", "episodic"], "description": "For 'add': 'profile' = durable identity/preferences injected every turn; 'episodic' (default) = recalled on demand."},
+            "importance": {"type": "integer", "description": "For 'add': 1-10 retrieval weight (10 = core/critical, 5 = default, 1 = trivial)."},
+            "hops": {"type": "integer", "description": "For 'graph': association depth to traverse (default 2)."},
             "tags": {"type": "string", "description": "Comma-separated tags."},
             "trust_delta": {"type": "number", "description": "Trust adjustment for 'update'."},
             "min_trust": {"type": "number", "description": "Minimum trust filter (default: 0.3)."},
