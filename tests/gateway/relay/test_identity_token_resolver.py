@@ -35,18 +35,11 @@ def _clean_env(monkeypatch):
     monkeypatch.setattr("gateway.run._load_gateway_config", lambda: {}, raising=False)
 
 
-def test_defaults_to_nous_portal_when_no_idp_configured(monkeypatch):
-    called = {}
-
-    def fake_resolve():
-        called["yes"] = True
-        return "nous-portal-token"
-
-    monkeypatch.setattr(
-        "hercules_cli.auth.resolve_nous_access_token", fake_resolve, raising=False
-    )
-    assert relay._resolve_relay_identity_token() == "nous-portal-token"
-    assert called == {"yes": True}
+def test_returns_none_when_no_idp_configured(monkeypatch):
+    # Mode 2 (Nous Portal default) was removed with the Nous provider. Without a
+    # configured IdP token_url there is no identity to resolve; callers treat a
+    # None token as "not enrolled" and no-op gracefully.
+    assert relay._resolve_relay_identity_token() is None
 
 
 def test_client_credentials_via_env(monkeypatch):
