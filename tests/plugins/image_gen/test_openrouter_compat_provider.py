@@ -68,14 +68,13 @@ class TestProviderClass:
         from plugins.image_gen.openrouter import _build_providers
 
         names = {p.name for p in _build_providers()}
-        assert names == {"openrouter", "nous"}
+        assert names == {"openrouter"}
 
     def test_display_names(self):
         from plugins.image_gen.openrouter import _build_providers
 
         by_name = {p.name: p for p in _build_providers()}
         assert by_name["openrouter"].display_name == "OpenRouter"
-        assert by_name["nous"].display_name == "Nous Portal"
 
     def test_capabilities_support_image_input(self):
         caps = _openrouter().capabilities()
@@ -125,14 +124,6 @@ class TestProviderClass:
         cfg = {"model": "openai/gpt-image-2"}
         with patch("plugins.image_gen.openrouter._load_image_gen_config", return_value=cfg):
             assert _openrouter()._resolve_model_chain() == ["openai/gpt-image-2"]
-
-    def test_nous_honors_top_level_model(self):
-        from plugins.image_gen.openrouter import _build_providers
-
-        cfg = {"model": "openai/gpt-image-2"}
-        nous = {p.name: p for p in _build_providers()}["nous"]
-        with patch("plugins.image_gen.openrouter._load_image_gen_config", return_value=cfg):
-            assert nous._resolve_model_chain() == ["openai/gpt-image-2"]
 
     def test_explicit_model_kwarg_wins_over_config(self):
         cfg = {"model": "openai/gpt-image-2"}
@@ -336,22 +327,17 @@ class TestGenerate:
         assert mock_post.call_args.kwargs["json"]["model"] == "openai/gpt-image-2"
 
     def test_posts_to_resolved_base_url(self):
-        """Nous routes to its own base URL — proves the same code serves both."""
-        nous_runtime = _runtime_ok(
-            provider="nous", base_url="https://inference.nousresearch.com/v1", api_key="nous-tok"
-        )
-        with patch(_RUNTIME, return_value=nous_runtime), \
+        """Provider routes requests to its resolved base URL."""
+        runtime = _runtime_ok(base_url="https://example.com/v1", api_key="tok")
+        with patch(_RUNTIME, return_value=runtime), \
              patch("requests.post", return_value=_mock_chat_response([_PNG_DATA_URI])) as mock_post, \
              patch("plugins.image_gen.openrouter.save_b64_image", return_value=Path("/tmp/x.png")):
-            from plugins.image_gen.openrouter import _build_providers
-
-            nous = {p.name: p for p in _build_providers()}["nous"]
-            result = nous.generate(prompt="a pet")
+            result = _openrouter().generate(prompt="a pet")
 
         assert result["success"] is True
-        assert result["provider"] == "nous"
+        assert result["provider"] == "openrouter"
         url = mock_post.call_args[0][0]
-        assert url == "https://inference.nousresearch.com/v1/chat/completions"
+        assert url == "https://example.com/v1/chat/completions"
 
     def test_api_error(self):
         import requests as req_lib
@@ -440,10 +426,9 @@ class TestRegistration:
         ctx = MagicMock()
         register(ctx)
         registered = [c.args[0].name for c in ctx.register_image_gen_provider.call_args_list]
-        assert set(registered) == {"openrouter", "nous"}
+        assert set(registered) == {"openrouter"}
 
-    def test_both_are_reference_capable_for_pets(self):
+    def test_openrouter_is_reference_capable_for_pets(self):
         from agent.pet.generate.imagegen import _REF_CAPABLE
 
         assert "openrouter" in _REF_CAPABLE
-        assert "nous" in _REF_CAPABLE

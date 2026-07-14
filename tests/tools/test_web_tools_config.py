@@ -634,45 +634,6 @@ class TestCheckWebApiKey:
             from tools.web_tools import check_web_api_key
             assert check_web_api_key() is True
 
-    def test_tool_gateway_availability_skips_refresh_for_expired_cached_token(
-        self,
-        tmp_path,
-        monkeypatch,
-    ):
-        monkeypatch.delenv("TOOL_GATEWAY_USER_TOKEN", raising=False)
-        monkeypatch.setenv("HERCULES_HOME", str(tmp_path))
-        expired_at = "2000-01-01T00:00:00+00:00"
-        (tmp_path / "auth.json").write_text(json.dumps({
-            "providers": {
-                "nous": {
-                    "access_token": "expired-token",
-                    "refresh_token": "refresh-token",
-                    "expires_at": expired_at,
-                }
-            }
-        }))
-        refresh_calls = []
-
-        def _record_refresh(*, refresh_skew_seconds=120, **_kwargs):
-            refresh_calls.append(refresh_skew_seconds)
-            return "fresh-token"
-
-        monkeypatch.setattr(
-            "hercules_cli.auth.resolve_nous_access_token",
-            _record_refresh,
-        )
-
-        with patch.dict(
-            os.environ,
-            {"FIRECRAWL_GATEWAY_URL": "http://127.0.0.1:3002"},
-            clear=False,
-        ):
-            from tools.web_tools import check_web_api_key
-
-            assert check_web_api_key() is True
-
-        assert refresh_calls == []
-
     def test_configured_backend_must_match_available_provider(self):
         with patch("tools.web_tools._load_web_config", return_value={"backend": "parallel"}):
             with patch("tools.web_tools._read_nous_access_token", return_value="nous-token"):
