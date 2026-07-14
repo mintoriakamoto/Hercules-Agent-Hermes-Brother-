@@ -78,8 +78,8 @@ Top-to-bottom, in order:
 9. **Adds `%LOCALAPPDATA%\hercules\hercules-agent\venv\Scripts` to User PATH and sets `HERCULES_HOME=%LOCALAPPDATA%\hercules`** — exposes the `hercules` command (and points it at your data dir) after you open a new terminal.
 10. **Runs `hercules setup`** — the normal first-run wizard (model, provider, toolsets). Skip with `-SkipSetup`.
 
-:::tip Skip provider hunting on Windows
-On Windows, per-tool API key setup (Firecrawl, FAL, Browser Use, OpenAI TTS) is the highest-friction part of getting a useful agent. A [Nous Portal](/user-guide/features/tool-gateway) subscription covers the model **and** all of those tools through one OAuth login. After the installer finishes, run `hercules setup --portal` to wire everything up.
+:::tip Get a model working first on Windows
+The quickest way to a working agent is [OpenRouter](/integrations/providers#openrouter) — a single `OPENROUTER_API_KEY` covers 300+ models. After the installer finishes, add the key to `~/.hercules/.env`, run `hercules model`, then enable individual tools (Firecrawl, FAL, Browser Use, OpenAI TTS) with their own keys via `hercules tools`.
 :::
 
 ## Feature matrix

@@ -35,7 +35,7 @@ python batch_runner.py --list_distributions
 ```
 
 :::tip Predictable cost at scale
-Batch runs spin up many concurrent agent sessions, each making model calls and tool calls. A [Nous Portal](/user-guide/features/tool-gateway) subscription bundles model access plus web search, image gen, TTS, and cloud browsers under one bill — useful when you want stable cost-per-trajectory without juggling rate limits across five vendor accounts. Set up with `hercules setup --portal`, then point `--model` at a Nous model.
+Batch runs spin up many concurrent agent sessions, each making model calls and tool calls. Routing through [OpenRouter](/integrations/providers#openrouter) — a single `OPENROUTER_API_KEY` across 300+ models — keeps model billing under one account instead of juggling rate limits across several vendors. Point `--model` at an OpenRouter model.
 :::
 
 ## Dataset Format

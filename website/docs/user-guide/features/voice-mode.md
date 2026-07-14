@@ -22,8 +22,8 @@ Before using voice features, make sure you have:
 The `~/.hercules/` directory and default `config.yaml` are created automatically the first time you run `hercules`. You only need to create `~/.hercules/.env` manually for API keys.
 :::
 
-:::tip Nous Portal covers both
-A paid [Nous Portal](/user-guide/features/tool-gateway) subscription supplies the LLM (step 2) **and** OpenAI TTS via the Tool Gateway — no separate OpenAI key needed. On a fresh install, `hercules setup --portal` wires both up at once.
+:::tip Setup
+Use [OpenRouter](/integrations/providers#openrouter) for the LLM (step 2), then set an `OPENAI_API_KEY` for OpenAI TTS and enable it via `hercules tools`.
 :::
 
 ## Overview
