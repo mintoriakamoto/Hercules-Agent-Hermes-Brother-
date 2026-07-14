@@ -29,6 +29,14 @@ logger = logging.getLogger("memory.holographic.llm")
 _DEFAULT_MODEL = "gpt-4o-mini"
 
 
+def _clamp_importance(value, default: int = 5) -> int:
+    """Coerce an LLM-supplied importance to an int in [1, 10] (default on junk)."""
+    try:
+        return max(1, min(10, int(value)))
+    except (ValueError, TypeError):
+        return default
+
+
 def _extract_json(text: str):
     """Best-effort parse of a JSON object/array from an LLM reply.
 
@@ -158,12 +166,14 @@ class MemoryLLM:
             "Return ONLY a JSON array. Each item: "
             '{"content": str, "category": one of '
             '["user_pref","project","identity","fact","general"], '
-            '"fact_type": "profile" or "episodic"}. '
+            '"fact_type": "profile" or "episodic", "importance": 1-10}. '
             "Rules: one atomic fact per item, self-contained, third-person, no "
             "pronouns without referents. Capture stable preferences, decisions, "
             "identity, and durable facts. SKIP small talk, transient state, and "
             "anything not worth remembering next session. Use fact_type "
             '"profile" for stable identity/preferences, "episodic" otherwise. '
+            "importance: how much this should influence future behavior (10 = "
+            "core identity/critical, 1 = trivial). "
             "Return [] if nothing is worth saving."
         )
         raw = self._chat(system, conversation[:6000])
@@ -184,6 +194,70 @@ class MemoryLLM:
                     "fact_type": "profile"
                     if str(item.get("fact_type", "")).lower() == "profile"
                     else "episodic",
+                    "importance": _clamp_importance(item.get("importance")),
+                }
+            )
+        return out
+
+    def score_importance(self, content: str) -> Optional[int]:
+        """Rate how much a single fact should influence future behavior (1–10)."""
+        system = (
+            "Rate, from 1 to 10, how important this fact is for an AI agent to "
+            "remember and let influence future behavior (10 = core identity or "
+            "critical; 1 = trivial/transient). Reply with ONLY the integer."
+        )
+        raw = self._chat(system, content[:1000])
+        if raw is None:
+            return None
+        m = re.search(r"\d+", raw)
+        return _clamp_importance(m.group(0)) if m else None
+
+    def reflect(self, facts: List[dict]) -> Optional[List[dict]]:
+        """Synthesize higher-order insights from recent observations.
+
+        facts: ``[{"fact_id": int, "content": str}, ...]``. Returns a list of
+        ``{"content", "category", "source_ids": [int], "importance": int}``
+        insights — durable generalizations worth promoting to profile memory —
+        or None when unavailable.
+        """
+        if not facts:
+            return []
+        listing = "\n".join(f'{f["fact_id"]}: {f["content"]}' for f in facts)
+        system = (
+            "You are the reflective memory of an AI agent. Given recent "
+            "observations (each: `id: fact`), synthesize higher-order INSIGHTS: "
+            "durable generalizations, patterns, or conclusions that will matter "
+            "in future sessions and are NOT obvious from a single observation. "
+            "Return ONLY a JSON array; each item: "
+            '{"content": str, "category": str, "source_ids": [int,...] (the ids '
+            'the insight is drawn from), "importance": 1-10}. '
+            "Prefer a few strong insights over many weak ones. Return [] if "
+            "nothing is worth generalizing."
+        )
+        data = _extract_json(self._chat(system, listing) or "")
+        if not isinstance(data, list):
+            return None
+        out = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            content = str(item.get("content", "") or "").strip()
+            if not content:
+                continue
+            raw_sources = item.get("source_ids") or []
+            source_ids = []
+            if isinstance(raw_sources, list):
+                for s in raw_sources:
+                    try:
+                        source_ids.append(int(s))
+                    except (ValueError, TypeError):
+                        continue
+            out.append(
+                {
+                    "content": content[:400],
+                    "category": str(item.get("category", "insight") or "insight"),
+                    "source_ids": source_ids,
+                    "importance": _clamp_importance(item.get("importance"), default=8),
                 }
             )
         return out

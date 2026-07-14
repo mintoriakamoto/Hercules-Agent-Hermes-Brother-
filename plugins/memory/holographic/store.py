@@ -27,7 +27,15 @@ CREATE TABLE IF NOT EXISTS facts (
     hrr_vector      BLOB,
     embedding       BLOB,
     fact_type       TEXT DEFAULT 'episodic',
+    importance      INTEGER DEFAULT 5,
+    reflected       INTEGER DEFAULT 0,
     superseded_by   INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS fact_sources (
+    derived_fact_id INTEGER REFERENCES facts(fact_id),
+    source_fact_id  INTEGER REFERENCES facts(fact_id),
+    PRIMARY KEY (derived_fact_id, source_fact_id)
 );
 
 CREATE TABLE IF NOT EXISTS entities (
@@ -192,6 +200,10 @@ class MemoryStore:
             self._conn.execute("ALTER TABLE facts ADD COLUMN fact_type TEXT DEFAULT 'episodic'")
         if "superseded_by" not in columns:
             self._conn.execute("ALTER TABLE facts ADD COLUMN superseded_by INTEGER")
+        if "importance" not in columns:
+            self._conn.execute("ALTER TABLE facts ADD COLUMN importance INTEGER DEFAULT 5")
+        if "reflected" not in columns:
+            self._conn.execute("ALTER TABLE facts ADD COLUMN reflected INTEGER DEFAULT 0")
         self._conn.commit()
 
     # ------------------------------------------------------------------
@@ -204,6 +216,7 @@ class MemoryStore:
         category: str = "general",
         tags: str = "",
         fact_type: str = "episodic",
+        importance: int = 5,
     ) -> int:
         """Insert a fact and return its fact_id.
 
@@ -211,9 +224,11 @@ class MemoryStore:
         the existing fact_id without modifying the row. Extracts entities from
         the content and links them to the fact. ``fact_type`` is "profile" for
         durable identity/preferences (always surfaced, never decayed) or
-        "episodic" for everything else.
+        "episodic" for everything else. ``importance`` (1–10) weights the fact
+        in retrieval — significant facts outrank incidental ones.
         """
         fact_type = "profile" if fact_type == "profile" else "episodic"
+        importance = max(1, min(10, int(importance)))
         with self._lock:
             content = content.strip()
             if not content:
@@ -222,10 +237,10 @@ class MemoryStore:
             try:
                 cur = self._conn.execute(
                     """
-                    INSERT INTO facts (content, category, tags, trust_score, fact_type)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO facts (content, category, tags, trust_score, fact_type, importance)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (content, category, tags, self.default_trust, fact_type),
+                    (content, category, tags, self.default_trust, fact_type, importance),
                 )
                 self._conn.commit()
                 fact_id: int = cur.lastrowid  # type: ignore[assignment]
@@ -551,6 +566,7 @@ class MemoryStore:
         tags: str = "",
         fact_type: str = "episodic",
         reconciler: "object | None" = None,
+        importance: int = 5,
     ) -> dict:
         """Add a fact with consolidation: dedup + supersede via ``reconciler``.
 
@@ -584,7 +600,9 @@ class MemoryStore:
             return {"action": "duplicate", "fact_id": target, "superseded": []}
 
         # Insert the new fact.
-        new_id = self.add_fact(content, category=category, tags=tags, fact_type=fact_type)
+        new_id = self.add_fact(
+            content, category=category, tags=tags, fact_type=fact_type, importance=importance
+        )
 
         superseded: list[int] = []
         if decision and decision.get("action") == "update":
@@ -595,6 +613,102 @@ class MemoryStore:
                     superseded.append(target)
 
         return {"action": "update" if superseded else "new", "fact_id": new_id, "superseded": superseded}
+
+    # ------------------------------------------------------------------
+    # Reflection / importance
+    # ------------------------------------------------------------------
+
+    def set_importance(self, fact_id: int, importance: int) -> bool:
+        """Set a fact's importance (1–10). Returns True if the row existed."""
+        importance = max(1, min(10, int(importance)))
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE facts SET importance = ? WHERE fact_id = ?", (importance, fact_id)
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def select_unreflected_facts(self, limit: int = 40) -> list[dict]:
+        """Live episodic facts not yet folded into a reflection.
+
+        Ordered by importance then recency so a reflection pass reasons over the
+        most significant recent experience first.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT fact_id, content, category, importance, created_at
+                FROM facts
+                WHERE reflected = 0
+                  AND superseded_by IS NULL
+                  AND fact_type = 'episodic'
+                ORDER BY importance DESC, created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return [self._row_to_dict(r) for r in rows]
+
+    def mark_reflected(self, fact_ids: list) -> None:
+        """Flag facts as already considered by a reflection pass."""
+        if not fact_ids:
+            return
+        with self._lock:
+            placeholders = ",".join("?" * len(fact_ids))
+            self._conn.execute(
+                f"UPDATE facts SET reflected = 1 WHERE fact_id IN ({placeholders})",
+                list(fact_ids),
+            )
+            self._conn.commit()
+
+    def add_derived_fact(
+        self,
+        content: str,
+        category: str = "insight",
+        source_ids: "list | None" = None,
+        importance: int = 8,
+    ) -> int:
+        """Store a reflection-derived insight as a durable 'profile' fact and
+        record its provenance (which source facts it was synthesized from).
+
+        Returns the derived fact_id (or the existing id if the content already
+        exists). Insights are high-importance by default — they are the store's
+        considered beliefs, not raw observations.
+        """
+        fact_id = self.add_fact(
+            content, category=category, fact_type="profile", importance=importance
+        )
+        if source_ids:
+            with self._lock:
+                for sid in source_ids:
+                    try:
+                        self._conn.execute(
+                            "INSERT OR IGNORE INTO fact_sources (derived_fact_id, source_fact_id) "
+                            "VALUES (?, ?)",
+                            (fact_id, int(sid)),
+                        )
+                    except (ValueError, TypeError, sqlite3.Error):
+                        continue
+                self._conn.commit()
+        return fact_id
+
+    def get_fact_sources(self, fact_id: int) -> list[dict]:
+        """Return the evidence facts a derived insight was synthesized from.
+
+        Powers "why do you believe that?" — the provenance chain behind an
+        insight.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT f.fact_id, f.content, f.category, f.created_at
+                FROM fact_sources fs
+                JOIN facts f ON f.fact_id = fs.source_fact_id
+                WHERE fs.derived_fact_id = ?
+                """,
+                (fact_id,),
+            ).fetchall()
+            return [self._row_to_dict(r) for r in rows]
 
     # ------------------------------------------------------------------
     # Entity helpers

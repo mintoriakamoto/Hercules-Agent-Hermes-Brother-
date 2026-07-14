@@ -144,6 +144,15 @@ class FactRetriever:
             # Trust weighting
             score = relevance * fact["trust_score"]
 
+            # Importance weighting: significant facts (LLM-scored 1–10) outrank
+            # incidental ones. Centered so the default (5) is a 1.0 no-op —
+            # importance 10 → x1.5, importance 1 → x0.6.
+            importance = fact.get("importance", 5)
+            try:
+                score *= 0.5 + max(1, min(10, int(importance))) / 10.0
+            except (TypeError, ValueError):
+                pass
+
             # Optional temporal decay
             if self.half_life > 0:
                 score *= self._temporal_decay(fact.get("updated_at") or fact.get("created_at"))

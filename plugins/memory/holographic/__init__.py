@@ -33,6 +33,10 @@ Config in $HERCULES_HOME/config.yaml (profile-scoped):
       curation_base_url: ""
       curation_api_key_env: OPENAI_API_KEY
       profile_inject_limit: 15        # durable 'profile' facts injected each turn
+      # Reflection: at session end, fold recent observations into higher-order
+      # insights promoted to durable 'profile' memory (with provenance links).
+      # Auto-on when curation is enabled; also runnable via fact_store(reflect).
+      auto_reflect: true
 """
 
 from __future__ import annotations
@@ -76,7 +80,7 @@ FACT_STORE_SCHEMA = {
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["add", "search", "probe", "related", "reason", "contradict", "update", "remove", "list"],
+                "enum": ["add", "search", "probe", "related", "reason", "contradict", "update", "remove", "list", "reflect", "why"],
             },
             "content": {"type": "string", "description": "Fact content (required for 'add')."},
             "query": {"type": "string", "description": "Search query (required for 'search')."},
@@ -317,11 +321,68 @@ class HolographicMemoryProvider(MemoryProvider):
         return tool_error(f"Unknown tool: {tool_name}")
 
     def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
-        if not self._config.get("auto_extract", False):
+        if not self._store:
             return
-        if not self._store or not messages:
-            return
-        self._auto_extract_facts(messages)
+        if self._config.get("auto_extract", False) and messages:
+            self._auto_extract_facts(messages)
+        # Reflect after extracting: fold recent observations into higher-order
+        # insights. Auto-on when a curation LLM is available (opt out with
+        # auto_reflect: false); a no-op without the LLM.
+        llm = getattr(self, "_llm", None)
+        auto_reflect = self._config.get("auto_reflect", True)
+        if auto_reflect and llm is not None and getattr(llm, "enabled", False):
+            try:
+                self.reflect()
+            except Exception as exc:
+                logger.debug("Reflection failed: %s", exc)
+
+    def reflect(self, min_facts: int = 5, max_facts: int = 40) -> dict:
+        """Synthesize higher-order insights from recent unreflected observations.
+
+        Reads live episodic facts not yet reflected on, asks the LLM to
+        generalize them into durable insights, promotes each insight to a
+        high-importance 'profile' fact with provenance links to its evidence,
+        and marks the sources reflected. Returns a summary dict. Safe no-op when
+        the LLM is unavailable or there isn't enough new experience yet.
+        """
+        result = {"insights": 0, "sources_considered": 0}
+        store = self._store
+        llm = getattr(self, "_llm", None)
+        if store is None or llm is None or not getattr(llm, "enabled", False):
+            return result
+        facts = store.select_unreflected_facts(limit=max_facts)
+        if len(facts) < max(1, min_facts):
+            return result  # not enough new experience to generalize yet
+        result["sources_considered"] = len(facts)
+        candidates = [{"fact_id": f["fact_id"], "content": f["content"]} for f in facts]
+        try:
+            insights = llm.reflect(candidates)
+        except Exception as exc:
+            logger.debug("LLM reflect failed: %s", exc)
+            insights = None
+        # Mark the window reflected regardless, so a barren pass doesn't re-run
+        # on the same facts every session.
+        store.mark_reflected([f["fact_id"] for f in facts])
+        if not insights:
+            return result
+        valid_ids = {f["fact_id"] for f in facts}
+        made = 0
+        for ins in insights:
+            sources = [s for s in ins.get("source_ids", []) if s in valid_ids]
+            try:
+                store.add_derived_fact(
+                    ins["content"],
+                    category=ins.get("category", "insight"),
+                    source_ids=sources,
+                    importance=int(ins.get("importance", 8)),
+                )
+                made += 1
+            except Exception:
+                continue
+        result["insights"] = made
+        if made:
+            logger.info("Reflection: synthesized %d insight(s) from %d observations", made, len(facts))
+        return result
 
     def on_memory_write(self, action: str, target: str, content: str) -> None:
         """Mirror built-in memory writes as facts."""
@@ -442,6 +503,16 @@ class HolographicMemoryProvider(MemoryProvider):
                 )
                 return json.dumps({"facts": facts, "count": len(facts)})
 
+            elif action == "reflect":
+                # Synthesize durable insights from recent observations now.
+                summary = self.reflect(min_facts=int(args.get("min_facts", 3)))
+                return json.dumps({"status": "reflected", **summary})
+
+            elif action == "why":
+                # Provenance: the evidence facts an insight was synthesized from.
+                sources = store.get_fact_sources(int(args["fact_id"]))
+                return json.dumps({"sources": sources, "count": len(sources)})
+
             else:
                 return tool_error(f"Unknown action: {action}")
 
@@ -492,6 +563,7 @@ class HolographicMemoryProvider(MemoryProvider):
                         category=f.get("category", "general"),
                         fact_type=f.get("fact_type", "episodic"),
                         reconciler=llm,
+                        importance=int(f.get("importance", 5)),
                     )
                     if res.get("action") in ("new", "update"):
                         stored += 1
