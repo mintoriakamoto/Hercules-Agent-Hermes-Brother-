@@ -18,7 +18,7 @@ class TestBuildOrHeaders:
         from agent.auxiliary_client import build_or_headers
 
         headers = build_or_headers(or_config={"response_cache": False})
-        assert headers["HTTP-Referer"] == "https://hercules-agent.nousresearch.com"
+        assert headers["HTTP-Referer"] == "https://github.com/hercules-agent"
         assert headers["X-Title"] == "Hercules Agent"
         assert headers["X-OpenRouter-Categories"] == "productivity,cli-agent"
 

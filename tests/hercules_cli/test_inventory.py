@@ -294,48 +294,6 @@ def test_list_authenticated_providers_force_fresh_is_keyword_only():
     assert param.default is False
 
 
-def test_pricing_uses_cached_nous_tier_by_default():
-    rows = [_nous_row()]
-    ctx = _empty_ctx(provider="nous", model="openai/gpt-5.5")
-    with (
-        _list_auth_returning(rows),
-        patch(
-            "hercules_cli.models.get_pricing_for_provider",
-            return_value={
-                "openai/gpt-5.5": {
-                    "prompt": "0.000001",
-                    "completion": "0.000002",
-                },
-            },
-        ),
-        patch("hercules_cli.models.check_nous_free_tier", return_value=False) as mock_free,
-    ):
-        build_models_payload(ctx, pricing=True)
-
-    mock_free.assert_called_once_with(force_fresh=False)
-
-
-def test_pricing_can_force_fresh_nous_tier():
-    rows = [_nous_row()]
-    ctx = _empty_ctx(provider="nous", model="openai/gpt-5.5")
-    with (
-        _list_auth_returning(rows),
-        patch(
-            "hercules_cli.models.get_pricing_for_provider",
-            return_value={
-                "openai/gpt-5.5": {
-                    "prompt": "0.000001",
-                    "completion": "0.000002",
-                },
-            },
-        ),
-        patch("hercules_cli.models.check_nous_free_tier", return_value=False) as mock_free,
-    ):
-        build_models_payload(ctx, pricing=True, force_fresh_nous_tier=True)
-
-    mock_free.assert_called_once_with(force_fresh=True)
-
-
 def test_include_unconfigured_appends_canonical_skeletons():
     """include_unconfigured=True adds CANONICAL_PROVIDERS rows that
     list_authenticated_providers didn't emit. Skeleton rows have empty

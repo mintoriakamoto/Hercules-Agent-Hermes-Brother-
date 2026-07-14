@@ -651,7 +651,9 @@ class TestSetupWizardSkipsConfiguredSections:
             patch.object(setup_mod, "is_interactive_stdin", return_value=True),
             patch("hercules_cli.auth.get_active_provider", return_value=None),
             patch("builtins.input", return_value=""),
-            patch.object(setup_mod, "prompt_choice", return_value=1),
+            # Choose "Full setup" (index 0) so the full-setup skip logic runs;
+            # index 1 is "Blank Slate", which bypasses the skip-configured path.
+            patch.object(setup_mod, "prompt_choice", return_value=0),
             # Migration succeeds and flips the env_side flag
             patch.object(
                 setup_mod, "_offer_openclaw_migration",

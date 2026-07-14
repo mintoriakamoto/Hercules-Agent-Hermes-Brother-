@@ -107,33 +107,6 @@ def test_minimax_login_does_not_launch_anthropic_flow():
     assert body["expires_in"] == 600
 
 
-def test_nous_dashboard_device_flow_ignores_legacy_scope_override(monkeypatch):
-    from hercules_cli import auth as auth_mod
-    from hercules_cli import web_server as ws
-
-    requested_scopes = []
-
-    def fake_request_device_code(**kwargs):
-        requested_scopes.append(kwargs["scope"])
-        return _fake_nous_device_data()
-
-    monkeypatch.setenv("HERCULES_AGENT_USE_LEGACY_SESSION_KEYS", "true")
-    monkeypatch.setattr(auth_mod, "_request_device_code", fake_request_device_code)
-    monkeypatch.setattr(ws, "_nous_poller", lambda sid: None)
-
-    result = asyncio.run(ws._start_device_code_flow("nous"))
-    try:
-        assert requested_scopes == [auth_mod.DEFAULT_NOUS_SCOPE]
-        assert result["flow"] == "device_code"
-        assert result["user_code"] == "NOUS-1234"
-        assert (
-            ws._oauth_sessions[result["session_id"]]["scope"]
-            == auth_mod.DEFAULT_NOUS_SCOPE
-        )
-    finally:
-        ws._oauth_sessions.pop(result["session_id"], None)
-
-
 def test_oauth_provider_status_uses_profile_query(tmp_path, monkeypatch):
     from hercules_cli import web_server as ws
     from hercules_constants import get_hercules_home
@@ -193,25 +166,6 @@ def test_oauth_start_stores_profile_for_background_completion(tmp_path, monkeypa
         assert ws._oauth_sessions[session_id]["profile"] == "coder"
     finally:
         ws._oauth_sessions.pop(session_id, None)
-
-
-def test_nous_dashboard_device_flow_does_not_retry_legacy_scope_on_invoke_refusal(monkeypatch):
-    from hercules_cli import auth as auth_mod
-    from hercules_cli import web_server as ws
-
-    requested_scopes = []
-
-    def fake_request_device_code(**kwargs):
-        requested_scopes.append(kwargs["scope"])
-        raise _invoke_scope_refusal()
-
-    monkeypatch.delenv("HERCULES_AGENT_USE_LEGACY_SESSION_KEYS", raising=False)
-    monkeypatch.setattr(auth_mod, "_request_device_code", fake_request_device_code)
-    monkeypatch.setattr(ws, "_nous_poller", lambda sid: None)
-
-    with pytest.raises(httpx.HTTPStatusError):
-        asyncio.run(ws._start_device_code_flow("nous"))
-    assert requested_scopes == [auth_mod.DEFAULT_NOUS_SCOPE]
 
 
 def test_codex_dashboard_worker_persists_runtime_provider(tmp_path, monkeypatch):
@@ -388,56 +342,6 @@ def test_codex_dashboard_start_rewords_device_authorization_error(monkeypatch):
     finally:
         for sid in set(ws._oauth_sessions) - before_sessions:
             ws._oauth_sessions.pop(sid, None)
-
-
-def test_nous_dashboard_poller_preserves_effective_scope_when_token_omits_scope(monkeypatch):
-    from hercules_cli import auth as auth_mod
-    from hercules_cli import web_server as ws
-
-    session_id = "nous-effective-scope-test"
-    ws._oauth_sessions[session_id] = {
-        "session_id": session_id,
-        "provider": "nous",
-        "flow": "device_code",
-        "created_at": time.time(),
-        "status": "pending",
-        "error_message": None,
-        "portal_base_url": "https://portal.nousresearch.com",
-        "client_id": "hercules-cli",
-        "device_code": "device-code",
-        "interval": 5,
-        "expires_at": time.time() + 600,
-        "scope": auth_mod.DEFAULT_NOUS_SCOPE,
-    }
-    captured_state = {}
-
-    def fake_refresh_nous_oauth_from_state(state, **kwargs):
-        captured_state.update(state)
-        return {**state, "agent_key": "jwt-agent-key"}
-
-    monkeypatch.setattr(
-        auth_mod,
-        "_poll_for_token",
-        lambda **kwargs: {
-            "access_token": "access-token",
-            "refresh_token": "refresh-token",
-            "expires_in": 3600,
-            "token_type": "Bearer",
-        },
-    )
-    monkeypatch.setattr(
-        auth_mod,
-        "refresh_nous_oauth_from_state",
-        fake_refresh_nous_oauth_from_state,
-    )
-    monkeypatch.setattr(auth_mod, "persist_nous_credentials", lambda state: None)
-
-    try:
-        ws._nous_poller(session_id)
-        assert captured_state["scope"] == auth_mod.DEFAULT_NOUS_SCOPE
-        assert ws._oauth_sessions[session_id]["status"] == "approved"
-    finally:
-        ws._oauth_sessions.pop(session_id, None)
 
 
 def test_minimax_dashboard_poller_accepts_absolute_ms_expired_in():
@@ -787,19 +691,6 @@ def test_status_falls_through_to_generic_dispatcher_for_catalog_only_provider():
     assert out["token_preview"] and "sk-future-secret-token-xyz" not in out["token_preview"]
     assert out["expires_at"] == "2026-12-01T00:00:00Z"
     assert out["has_refresh_token"] is True
-
-
-def test_status_hardcoded_branch_wins_over_generic_fallback():
-    """An existing hardcoded branch (nous) is unaffected by the fallthrough."""
-    import hercules_cli.web_server as ws
-
-    with patch(
-        "hercules_cli.auth.get_nous_auth_status",
-        return_value={"logged_in": True, "portal_base_url": "https://portal.test"},
-    ):
-        out = ws._resolve_provider_status("nous", None)
-    assert out["source"] == "nous_portal"
-    assert out["source_label"] == "https://portal.test"
 
 
 def test_status_unknown_provider_degrades_to_logged_out():

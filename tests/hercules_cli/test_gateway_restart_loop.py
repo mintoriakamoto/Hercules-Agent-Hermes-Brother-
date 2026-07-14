@@ -29,7 +29,7 @@ class TestGatewayLifecyclePattern:
         "hercules gateway restart",
         "hercules gateway stop",
         "hercules  gateway  restart",         # double spaces
-        "Hermez Gateway Restart".lower().replace("z", "s"),  # case handled
+        "Hercules Gateway Restart".lower(),  # case handled
         "HERCULES GATEWAY RESTART",           # uppercase
     ])
     def test_hercules_gateway_commands(self, text):

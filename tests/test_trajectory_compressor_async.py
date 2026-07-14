@@ -54,8 +54,9 @@ class TestAsyncClientLazyCreation:
         assert comp.async_client is not None
 
     def test_get_async_client_creates_fresh_each_call(self):
-        """Each call to _get_async_client() creates a NEW client instance,
-        so it binds to the current event loop."""
+        """Each fresh event loop (every asyncio.run) gets a NEW client bound
+        to that loop, so the client never outlives a closed loop."""
+        import asyncio
         from trajectory_compressor import TrajectoryCompressor
 
         comp = TrajectoryCompressor.__new__(TrajectoryCompressor)
@@ -74,11 +75,15 @@ class TestAsyncClientLazyCreation:
             instances.append(instance)
             return instance
 
-        with patch("openai.AsyncOpenAI", side_effect=mock_constructor):
-            client1 = comp._get_async_client()
-            client2 = comp._get_async_client()
+        async def _get():
+            return comp._get_async_client()
 
-        # Should have created two separate instances
+        with patch("openai.AsyncOpenAI", side_effect=mock_constructor):
+            # Two separate asyncio.run() calls create two distinct loops.
+            client1 = asyncio.run(_get())
+            client2 = asyncio.run(_get())
+
+        # A different loop each time -> two separate client instances.
         assert call_count == 2
         assert instances[0] is not instances[1]
 
@@ -97,16 +102,24 @@ class TestSourceLineVerification:
         """__init__ should NOT create AsyncOpenAI eagerly."""
         src = self._read_file()
         # The old pattern: self.async_client = AsyncOpenAI(...) in _init_summarizer
-        # should not exist — only self.async_client = None
+        # should not exist — construction is allowed ONLY inside _get_async_client.
         lines = src.split("\n")
-        for i, line in enumerate(lines, 1):
-            if "self.async_client = AsyncOpenAI(" in line and "_get_async_client" not in lines[max(0,i-3):i+1]:
-                # Allow it inside _get_async_client method
-                # Check if we're inside _get_async_client by looking at context
-                context = "\n".join(lines[max(0,i-20):i+1])
-                if "_get_async_client" not in context:
+
+        def _enclosing_def(idx: int):
+            # Walk backwards to the nearest enclosing 'def' and return its name.
+            for j in range(idx, -1, -1):
+                stripped = lines[j].lstrip()
+                if stripped.startswith("def "):
+                    return stripped[len("def "):].split("(")[0]
+            return None
+
+        for i, line in enumerate(lines):
+            if "self.async_client = AsyncOpenAI(" in line:
+                enclosing = _enclosing_def(i)
+                if enclosing != "_get_async_client":
                     pytest.fail(
-                        f"Line {i}: AsyncOpenAI created eagerly outside _get_async_client()"
+                        f"Line {i + 1}: AsyncOpenAI created eagerly in "
+                        f"{enclosing!r}, not _get_async_client()"
                     )
 
     def test_get_async_client_method_exists(self):
