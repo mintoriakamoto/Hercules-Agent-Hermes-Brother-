@@ -14,12 +14,11 @@ You need at least one way to connect to an LLM. Use `hercules model` to switch p
 
 | Provider | Setup |
 |----------|-------|
-| **Nous Portal** | `hercules model` (OAuth, subscription-based) |
+| **OpenRouter** | `OPENROUTER_API_KEY` in `~/.hercules/.env` (recommended default) |
 | **OpenAI Codex** | `hercules model` (ChatGPT OAuth, uses Codex models) |
 | **GitHub Copilot** | `hercules model` (OAuth device code flow, `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `gh auth token`) |
 | **GitHub Copilot ACP** | `hercules model` (spawns local `copilot --acp --stdio`) |
 | **Anthropic** | `hercules model` (Claude Max + extra usage credits via OAuth; also supports Anthropic API key or manual setup-token — see note below) |
-| **OpenRouter** | `OPENROUTER_API_KEY` in `~/.hercules/.env` |
 | **Fireworks AI** | `FIREWORKS_API_KEY` in `~/.hercules/.env` (provider: `fireworks`; aliases: `fireworks-ai`, `fw`) |
 | **NovitaAI** | `NOVITA_API_KEY` in `~/.hercules/.env` (provider: `novita`, 200+ models, Model API, Agent Sandbox, GPU Cloud) |
 | **z.ai / GLM** | `GLM_API_KEY` in `~/.hercules/.env` (provider: `zai`) |
@@ -60,23 +59,17 @@ In the `model:` config section, you can use either `default:` or `model:` as the
 :::
 
 
-### Nous Portal
+### OpenRouter
 
-[Nous Portal](https://portal.nousresearch.com) is Nous Research's unified subscription gateway and **the recommended way to run Hercules Agent**. One OAuth login covers 300+ frontier agentic models (Claude, GPT, Gemini, DeepSeek, Qwen, Kimi, GLM, MiniMax, Grok, ...) plus the [Tool Gateway](/user-guide/features/tool-gateway) (web search, image generation, TTS, browser automation) plus [Nous Chat](https://chat.nousresearch.com) — billed against your Nous subscription instead of separate per-provider accounts.
+[OpenRouter](https://openrouter.ai) is a unified API gateway and **the recommended default for running Hercules Agent**. A single `OPENROUTER_API_KEY` covers 300+ frontier models (Claude, GPT, Gemini, DeepSeek, Qwen, Kimi, GLM, MiniMax, Grok, ...) billed through one OpenRouter account instead of separate per-provider keys.
 
 ```bash
-hercules setup --portal     # fresh install — OAuth + provider + gateway in one command
-hercules model              # existing install — pick "Nous Portal" from the list
-hercules portal info        # inspect login + routing at any time
+# Add your key to ~/.hercules/.env, then pick a model
+echo 'OPENROUTER_API_KEY=sk-or-...' >> ~/.hercules/.env
+hercules model              # pick "OpenRouter" and choose a model
 ```
 
-Don't have a subscription yet? Get one at [portal.nousresearch.com/manage-subscription](https://portal.nousresearch.com/manage-subscription).
-
-**For full details:** see the dedicated [Nous Portal integration page](/integrations/nous-portal) (what's in the subscription, model catalog, troubleshooting) and the step-by-step [Run Hercules Agent with Nous Portal guide](/guides/run-hercules-with-nous-portal).
-
-**Client identification.** Every Portal request from Hercules Agent carries a `client=hercules-client-v<version>` tag (e.g. `client=hercules-client-v0.13.0`) auto-aligned to your installed release. This is sent on all Portal pathways — main chat loop, auxiliary calls, compression summarizer, web extraction — and lets Portal-side telemetry distinguish Hercules traffic from other clients. No config required; the tag updates automatically when you `hercules update`.
-
-**JWT auth (automatic).** Hercules prefers scoped `inference:invoke` JWTs for Portal requests with the legacy opaque session-key path as a fallback. No configuration is required — credentials are managed by the OAuth flow and rotate transparently. Revoked refresh tokens are quarantined to avoid replay loops.
+Get an API key at [openrouter.ai/keys](https://openrouter.ai/keys). OpenRouter also supports [provider routing](/user-guide/features/provider-routing) — fine-grained control over which underlying providers handle your requests.
 
 
 :::info Codex Note
@@ -86,11 +79,7 @@ If a token refresh fails with a terminal error (HTTP 4xx, `invalid_grant`, revok
 :::
 
 :::warning
-Even when using Nous Portal, Codex, or a custom endpoint, some tools (vision, web summarization, MoA) use a separate "auxiliary" model. By default (`auxiliary.*.provider: "auto"`), Hercules routes these tasks to your **main chat model** — the same model you picked in `hercules model`. You can override each task individually to route it to a cheaper/faster model (e.g. Gemini Flash on OpenRouter) — see [Auxiliary Models](/user-guide/configuration#auxiliary-models).
-:::
-
-:::tip Nous Tool Gateway
-Paid Nous Portal subscribers also get access to the **[Tool Gateway](/user-guide/features/tool-gateway)** — web search, image generation, TTS, and browser automation routed through your subscription. No extra API keys needed. On a fresh install, `hercules setup --portal` logs you in, sets Nous as your provider, and turns the gateway on in one command. Existing users can enable it from `hercules model` or per-tool from `hercules tools`. Inspect routing at any time with `hercules portal info`.
+Even when using OpenRouter, Codex, or a custom endpoint, some tools (vision, web summarization, MoA) use a separate "auxiliary" model. By default (`auxiliary.*.provider: "auto"`), Hercules routes these tasks to your **main chat model** — the same model you picked in `hercules model`. You can override each task individually to route it to a cheaper/faster model (e.g. Gemini Flash on OpenRouter) — see [Auxiliary Models](/user-guide/configuration#auxiliary-models).
 :::
 
 ### Two Commands for Model Management

@@ -85,20 +85,20 @@ The single most important setup step. Use `hercules model` to walk through the c
 hercules model
 ```
 
-:::tip Easiest path: Nous Portal
-One subscription covers 300+ models plus the [Tool Gateway](../user-guide/features/tool-gateway.md) (web search, image generation, TTS, cloud browser). On a fresh install:
+:::tip Easiest path: OpenRouter
+A single `OPENROUTER_API_KEY` covers 300+ models and is the recommended default. On a fresh install:
 
 ```bash
-hercules setup --portal
+echo 'OPENROUTER_API_KEY=sk-or-...' >> ~/.hercules/.env
+hercules model
 ```
 
-That logs you in, sets Nous as your provider, and turns on the Tool Gateway in one command.
+Add the key, then pick a model — see [OpenRouter](../integrations/providers.md#openrouter).
 :::
 
 :::info Setup modes
-On a fresh install, `hercules setup` offers three modes:
+On a fresh install, `hercules setup` offers two modes:
 
-- **Quick Setup (Nous Portal)** — free OAuth login, no API keys; sets up a model plus the Tool Gateway tools. The recommended fast path.
 - **Full Setup** — walk through every provider, tool, and option yourself (bring your own keys).
 - **Blank Slate** — everything starts **off** except the bare minimum needed to run an agent: **provider & model, the File Operations toolset, and the Terminal toolset**. No web, browser, code execution, vision, memory, delegation, cron, skills, plugins, or MCP servers — and compression, checkpoints, smart routing, and memory capture are all disabled. After the minimal baseline is applied, you choose one of two paths: **start with everything disabled** (finish now with the minimal agent), or **walk through all configurations** (opt in to tools, skills, plugins, MCP, and messaging). Pick this when you want a minimal, fully-controlled agent and intend to enable only exactly what you need.
 
@@ -109,10 +109,9 @@ Good defaults:
 
 | Provider | What it is | How to set up |
 |----------|-----------|---------------|
-| **Nous Portal** | Subscription-based, zero-config | OAuth login via `hercules model` |
+| **OpenRouter** | Multi-provider routing across 300+ models (recommended default) | Add `OPENROUTER_API_KEY`, then `hercules model` |
 | **OpenAI Codex** | ChatGPT OAuth, uses Codex models | Device code auth via `hercules model` |
 | **Anthropic** | Claude models directly — Max plan + extra usage credits (OAuth), or API key for pay-per-token | `hercules model` → OAuth login (requires Max + extra credits), or an Anthropic API key |
-| **OpenRouter** | Multi-provider routing across many models | Enter your API key |
 | **Fireworks AI** | Direct OpenAI-compatible model API | Set `FIREWORKS_API_KEY` |
 | **Z.AI** | GLM / Zhipu-hosted models | Set `GLM_API_KEY` / `ZAI_API_KEY` (also accepts `Z_AI_API_KEY`) |
 | **Kimi / Moonshot** | Moonshot-hosted coding and chat models | Set `KIMI_API_KEY` (or the Kimi-Coding-specific `KIMI_CODING_API_KEY`) |

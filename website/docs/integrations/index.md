@@ -9,7 +9,7 @@ sidebar_position: 0
 Hercules Agent connects to external systems for AI inference, tool servers, IDE workflows, programmatic access, and more. These integrations extend what Hercules can do and where it can run.
 
 :::tip Start here
-If you only have time to set up one integration, set up [Nous Portal](/integrations/nous-portal) — a single OAuth login covers 300+ models plus the four Tool Gateway tools (web search, image generation, TTS, and browser automation).
+If you only have time to set up one integration, set up [OpenRouter](/integrations/providers#openrouter) — a single API key covers 300+ models and is the recommended default for Hercules.
 :::
 
 ## AI Providers & Routing

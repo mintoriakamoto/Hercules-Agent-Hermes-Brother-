@@ -10,8 +10,8 @@ The API server exposes hercules-agent as an OpenAI-compatible HTTP endpoint. Any
 
 Your agent handles requests with its full toolset (terminal, file operations, web search, memory, skills) and returns the final response. When streaming, tool progress indicators appear inline so frontends can show what the agent is doing.
 
-:::tip One backend covers models + tools
-Hercules itself needs a configured provider and tool backends for the API server to be useful. A [Nous Portal](/user-guide/features/tool-gateway) subscription handles both — 300+ models plus web/image/TTS/browser via the Tool Gateway. Run `hercules setup --portal` once before starting the API server and frontends like Open WebUI or LobeChat get a fully tool-equipped backend.
+:::tip Configure a backend first
+Hercules needs a configured provider and tool backends for the API server to be useful. Start with [OpenRouter](/integrations/providers#openrouter) for the model — a single `OPENROUTER_API_KEY` covers 300+ models — then enable the tools you need via `hercules tools`. Do this before starting the API server so frontends like Open WebUI or LobeChat get a fully equipped backend.
 :::
 
 ## Quick Start

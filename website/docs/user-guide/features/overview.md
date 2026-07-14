@@ -9,7 +9,7 @@ sidebar_position: 1
 Hercules Agent includes a rich set of capabilities that extend far beyond basic chat. From persistent memory and file-aware context to browser automation and voice conversations, these features work together to make Hercules a powerful autonomous assistant.
 
 :::tip Don't know where to start?
-`hercules setup --portal` covers a model provider plus all four Tool Gateway tools (web search, image generation, TTS, browser) in one command. See [Nous Portal](/integrations/nous-portal).
+Add an `OPENROUTER_API_KEY` to `~/.hercules/.env` and run `hercules model` to configure a model provider — a single API key covers 300+ models. See [OpenRouter](/integrations/providers#openrouter).
 :::
 
 ## Core

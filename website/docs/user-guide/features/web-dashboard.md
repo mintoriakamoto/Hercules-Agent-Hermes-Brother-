@@ -9,7 +9,7 @@ description: "Browser-based administration panel for managing configuration, API
 The web dashboard is a browser-based UI for managing your Hercules Agent installation. Instead of editing YAML files or running CLI commands, you can configure settings, manage API keys, and monitor sessions from a clean web interface.
 
 :::tip
-Hosted-mode auth uses Nous Portal OAuth; if you also want the dashboard to talk to a real backend, `hercules setup --portal` wires up the model and tool gateway too. See [Nous Portal](/integrations/nous-portal).
+To have the dashboard talk to a real backend, configure a model provider first — the quickest path is adding an `OPENROUTER_API_KEY` to `~/.hercules/.env` and running `hercules model`. See [OpenRouter](/integrations/providers#openrouter).
 :::
 
 ## Quick Start
@@ -362,7 +362,6 @@ the API server and webhook endpoints) with its live connection status.
 A consolidated administration panel for installation-wide operations:
 
 - **Host** — live system stats: OS / kernel, architecture, hostname, Python and Hercules versions, CPU core count + utilization, memory, disk usage of the Hercules home, uptime, and load average. (CPU/memory/disk come from `psutil` when installed; identity fields are always shown.) The Hercules version shows an **update-status badge** (up to date / N commits behind) and a **Check for updates** button. When an update is available on a git or pip install, an **Update now** button opens a confirmation dialog — showing how many commits you'll pull — before running `hercules update` in the background. On Docker/Nix/Homebrew installs the dashboard can't apply the update in place, so it shows the correct out-of-band command instead.
-- **Nous Portal** — login status, the active inference provider, and the Tool Gateway routing table (which tools run via the Portal vs. locally), with a link to manage your subscription. Read-only mirror of `hercules portal`.
 - **Skill curator** — the background skill-maintenance status (active / paused, interval, last run) with pause/resume and a run-now button. Mirrors `hercules curator`.
 - **Gateway** — start, stop, and restart the messaging gateway, with live status (running/stopped, PID, state)
 - **Memory** — pick the external memory provider (or built-in only), and reset the built-in `MEMORY.md` / `USER.md` stores
