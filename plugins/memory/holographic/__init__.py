@@ -99,6 +99,7 @@ FACT_STORE_SCHEMA = {
             "fact_type": {"type": "string", "enum": ["profile", "episodic"], "description": "For 'add': 'profile' = durable identity/preferences injected every turn; 'episodic' (default) = recalled on demand."},
             "importance": {"type": "integer", "description": "For 'add': 1-10 retrieval weight (10 = core/critical, 5 = default, 1 = trivial)."},
             "hops": {"type": "integer", "description": "For 'graph': association depth to traverse (default 2)."},
+            "min_facts": {"type": "integer", "description": "For 'reflect': minimum new observations required before synthesizing insights (default 3)."},
             "tags": {"type": "string", "description": "Comma-separated tags."},
             "trust_delta": {"type": "number", "description": "Trust adjustment for 'update'."},
             "min_trust": {"type": "number", "description": "Minimum trust filter (default: 0.3)."},
