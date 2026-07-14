@@ -80,7 +80,7 @@ FACT_STORE_SCHEMA = {
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["add", "search", "probe", "related", "reason", "contradict", "update", "remove", "list", "reflect", "why"],
+                "enum": ["add", "search", "probe", "related", "reason", "contradict", "update", "remove", "list", "reflect", "why", "graph"],
             },
             "content": {"type": "string", "description": "Fact content (required for 'add')."},
             "query": {"type": "string", "description": "Search query (required for 'search')."},
@@ -512,6 +512,16 @@ class HolographicMemoryProvider(MemoryProvider):
                 # Provenance: the evidence facts an insight was synthesized from.
                 sources = store.get_fact_sources(int(args["fact_id"]))
                 return json.dumps({"sources": sources, "count": len(sources)})
+
+            elif action == "graph":
+                # Associative multi-hop recall over the entity graph.
+                seed = args.get("entity") or args.get("query", "")
+                results = retriever.graph_search(
+                    seed,
+                    hops=int(args.get("hops", 2)),
+                    limit=int(args.get("limit", 20)),
+                )
+                return json.dumps({"facts": results, "count": len(results)})
 
             else:
                 return tool_error(f"Unknown action: {action}")

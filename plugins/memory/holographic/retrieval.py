@@ -232,6 +232,18 @@ class FactRetriever:
                 merged.append(f)
         return merged
 
+    def graph_search(self, seed: str, hops: int = 2, limit: int = 20) -> list[dict]:
+        """Associative recall: extract entities from ``seed`` (a query or entity
+        name) and walk the fact↔entity graph. Falls back to treating the whole
+        seed as one entity name when no entities are extracted."""
+        entities = self.store._extract_entities(seed)
+        if not entities:
+            s = seed.strip()
+            entities = [s] if s else []
+        if not entities:
+            return []
+        return self.store.graph_recall(entities, hops=hops, limit=limit)
+
     def _record_retrievals(self, fact_ids: list) -> None:
         """Increment retrieval_count for the facts that surfaced. Best-effort."""
         if not fact_ids:

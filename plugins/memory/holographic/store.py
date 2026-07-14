@@ -711,6 +711,85 @@ class MemoryStore:
             return [self._row_to_dict(r) for r in rows]
 
     # ------------------------------------------------------------------
+    # Graph reasoning (multi-hop entity association)
+    # ------------------------------------------------------------------
+
+    def graph_recall(
+        self,
+        entity_names: list,
+        hops: int = 2,
+        limit: int = 20,
+    ) -> list[dict]:
+        """Associative recall over the fact↔entity graph.
+
+        Starting from ``entity_names``, walk the ``fact_entities`` graph up to
+        ``hops`` steps: a seed entity's facts, then the entities those facts
+        co-mention, then *their* facts, and so on. Answers "what do I know about
+        X and everything connected to X" — associative recall a flat store
+        can't do. Each result carries a ``hop`` distance (1 = directly about a
+        seed entity). Superseded facts are excluded; results are ordered closest
+        (lowest hop) then most-trusted first.
+        """
+        hops = max(1, int(hops))
+        with self._lock:
+            seeds: set[int] = set()
+            for name in entity_names:
+                name = str(name or "").strip()
+                if not name:
+                    continue
+                row = self._conn.execute(
+                    "SELECT entity_id FROM entities WHERE name = ? COLLATE NOCASE", (name,)
+                ).fetchone()
+                if row is not None:
+                    seeds.add(int(row["entity_id"]))
+            if not seeds:
+                return []
+
+            visited_entities = set(seeds)
+            frontier = set(seeds)
+            collected: dict[int, dict] = {}
+
+            for hop in range(1, hops + 1):
+                if not frontier:
+                    break
+                fe_ph = ",".join("?" * len(frontier))
+                rows = self._conn.execute(
+                    f"""
+                    SELECT DISTINCT f.fact_id, f.content, f.category, f.tags,
+                           f.trust_score, f.importance
+                    FROM facts f
+                    JOIN fact_entities fe ON fe.fact_id = f.fact_id
+                    WHERE fe.entity_id IN ({fe_ph}) AND f.superseded_by IS NULL
+                    """,
+                    list(frontier),
+                ).fetchall()
+                new_ids: list[int] = []
+                for r in rows:
+                    fid = int(r["fact_id"])
+                    if fid not in collected:
+                        d = self._row_to_dict(r)
+                        d["hop"] = hop
+                        collected[fid] = d
+                        new_ids.append(fid)
+                # Expand the frontier to entities co-mentioned in the new facts.
+                if new_ids and hop < hops:
+                    f_ph = ",".join("?" * len(new_ids))
+                    erows = self._conn.execute(
+                        f"SELECT DISTINCT entity_id FROM fact_entities WHERE fact_id IN ({f_ph})",
+                        new_ids,
+                    ).fetchall()
+                    next_frontier = {int(er["entity_id"]) for er in erows} - visited_entities
+                    visited_entities |= next_frontier
+                    frontier = next_frontier
+                else:
+                    frontier = set()
+
+            results = sorted(
+                collected.values(), key=lambda d: (d["hop"], -d.get("trust_score", 0.0))
+            )
+            return results[:limit]
+
+    # ------------------------------------------------------------------
     # Entity helpers
     # ------------------------------------------------------------------
 
