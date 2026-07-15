@@ -424,15 +424,25 @@ class TrajectoryCompressor:
         and exhausted file descriptors mid-run.
         """
         import asyncio
+        import weakref
         from openai import AsyncOpenAI
         from agent.auxiliary_client import _to_openai_base_url
         try:
-            loop_id = id(asyncio.get_running_loop())
+            running_loop = asyncio.get_running_loop()
         except RuntimeError:
-            loop_id = None
+            running_loop = None
+        # Compare the loop *object* identity, not id(loop): CPython reuses the
+        # id() of a garbage-collected loop, so two separate asyncio.run() calls
+        # can collide on the same id — which would hand back a client bound to a
+        # now-closed loop ("Event loop is closed"). A weakref to the actual loop
+        # dereferences to None once that loop is gone, so a stale binding never
+        # matches a live loop.
+        bound_ref = getattr(self, "_async_client_loop_ref", None)
+        bound_loop = bound_ref() if isinstance(bound_ref, weakref.ref) else None
         if (
             self.async_client is not None
-            and getattr(self, "_async_client_loop_id", None) == loop_id
+            and running_loop is not None
+            and bound_loop is running_loop
         ):
             return self.async_client
         # Loop changed (or first use) — bind a fresh client to this loop. Any
@@ -442,7 +452,9 @@ class TrajectoryCompressor:
             api_key=self._async_client_api_key,
             base_url=_to_openai_base_url(self.config.base_url),
         )
-        self._async_client_loop_id = loop_id
+        self._async_client_loop_ref = (
+            weakref.ref(running_loop) if running_loop is not None else None
+        )
         return self.async_client
 
     def _detect_provider(self) -> str:
