@@ -174,6 +174,21 @@ def activity_count(record: Dict[str, Any]) -> int:
     return total
 
 
+def net_effectiveness(record: Dict[str, Any]) -> int:
+    """Return helpful_count − unhelpful_count for a usage record.
+
+    Positive = the skill has earned more helpful than unhelpful ratings (proven
+    value); negative = it has misled more than it helped (a pruning candidate);
+    0 = no signal either way. Defensive against missing/malformed counters.
+    """
+    def _as_int(value: Any) -> int:
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+    return _as_int(record.get("helpful_count")) - _as_int(record.get("unhelpful_count"))
+
+
 # ---------------------------------------------------------------------------
 # Provenance — which skills are agent-created (and thus eligible for curation)
 # ---------------------------------------------------------------------------
@@ -490,6 +505,13 @@ def _empty_record() -> Dict[str, Any]:
         "last_viewed_at": None,
         "patch_count": 0,
         "last_patched_at": None,
+        # Effectiveness signal — the quality dimension recency can't see. A skill
+        # that keeps loading into context but never actually helps (the "no-op
+        # skill" anti-pattern) looks active forever to recency-only curation;
+        # these counters let the curator tell earned-its-keep from dead weight.
+        "helpful_count": 0,
+        "unhelpful_count": 0,
+        "last_feedback_at": None,
         "created_at": _now_iso(),
         "state": STATE_ACTIVE,
         "pinned": False,
@@ -640,6 +662,28 @@ def bump_patch(skill_name: str) -> None:
     def _apply(rec: Dict[str, Any]) -> None:
         rec["patch_count"] = int(rec.get("patch_count") or 0) + 1
         rec["last_patched_at"] = _now_iso()
+    _mutate(skill_name, _apply)
+
+
+def bump_feedback(skill_name: str, helpful: bool) -> None:
+    """Record an effectiveness signal for a skill after it was used: whether it
+    actually helped (``helpful=True``) or misled / added nothing over the
+    default behaviour (``helpful=False``). Called from ``skill_manage(action=
+    "feedback")``.
+
+    This is the quality signal the curator weighs alongside recency: a proven-
+    helpful skill earns a longer archive grace (it shouldn't be dropped from
+    context just for a quiet spell), while a net-unhelpful one is surfaced for
+    pruning. Unlike use/view/patch, feedback is NOT counted as recency activity
+    — a rating is a judgement about a past use, not a fresh use.
+
+    Tracks every skill regardless of provenance; best-effort like all telemetry.
+    """
+    key = "helpful_count" if helpful else "unhelpful_count"
+
+    def _apply(rec: Dict[str, Any]) -> None:
+        rec[key] = int(rec.get(key) or 0) + 1
+        rec["last_feedback_at"] = _now_iso()
     _mutate(skill_name, _apply)
 
 

@@ -1,7 +1,7 @@
 ---
 name: hercules-self-improvement
-description: "Use when a hard-won task should become reusable know-how, or when a skill you just used had a gap — the self-improvement loop: recognizing the moment, creating a user skill with skill_manage, and patching skills on friction. Distinct from in-repo authoring (this is runtime user-skill creation)."
-version: 1.0.0
+description: "Use when a hard-won task should become reusable know-how, when a skill you just used had a gap, or after a skill helped/misled you — the self-improvement loop: recognizing the moment, creating a user skill with skill_manage, patching skills on friction, and rating effectiveness with feedback so the curator keeps what works. Distinct from in-repo authoring (this is runtime user-skill creation)."
+version: 1.1.0
 author: Hercules Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -60,6 +60,7 @@ actively using are lower-stakes, but still surface what you changed.
 | Major rewrite | `edit` | full content; `skill_view()` first |
 | Remove | `delete` | pass `absorbed_into` (see below) |
 | Add/remove a reference file | `write_file` / `remove_file` | under `references/`, `templates/`, `scripts/`, `assets/` |
+| Rate a skill after use | `feedback` | `helpful=true` (it helped) / `helpful=false` (it misled or added nothing) — trains the curator |
 
 **On `delete`, always pass `absorbed_into`:** the umbrella skill name when you
 merged this skill's content into another (that target must already exist —
@@ -92,6 +93,31 @@ Cut any line that doesn't change behavior versus the default. A tight skill of
 - **Over time:** when two skills overlap, consolidate — `patch` the umbrella to
   absorb the other, then `delete` the absorbed one with `absorbed_into=<umbrella>`.
 
+## Rate what works (close the quality loop)
+
+Creating a skill is only half the loop. The **curator** runs in the background
+and maintains the skill library on two signals:
+
+- **Recency** — a skill that hasn't been used in a while goes stale, then
+  archived (dropped from context). This is automatic.
+- **Effectiveness** — *you* supply this, and it's the signal recency can't see.
+  A no-op skill that keeps matching and loading but never actually helps looks
+  "active" forever to recency alone; a genuinely useful skill can get archived
+  just for a quiet spell. Your ratings fix both.
+
+**Rate a skill right after it materially shaped a result** — good or bad:
+
+```
+skill_manage(action="feedback", name="deploy-fly-io", helpful=true)   # it worked
+skill_manage(action="feedback", name="stale-recipe",  helpful=false)  # it misled me
+```
+
+A skill with proven net-positive feedback resists idle-archival (it earned its
+keep); a net-unhelpful one is surfaced for pruning. This is the same discipline
+as `fact_feedback` for memory — rate what genuinely helped or hurt, and the
+library gets sharper over time. If a skill was *wrong*, prefer `patch`-ing it
+too (see the loop above): a `helpful=false` flags it, a patch actually fixes it.
+
 ## Common Pitfalls
 
 1. **Skilling one-offs** — bloats procedural memory with things you'll never
@@ -108,6 +134,9 @@ Cut any line that doesn't change behavior versus the default. A tight skill of
    overhauls.
 7. **`delete` without `absorbed_into`** — leaves the curator (and cron
    references) guessing consolidation vs pruning.
+8. **Never rating** — without `feedback`, the curator only sees recency, so a
+   no-op skill lingers and a proven one can be archived for going quiet. Rate a
+   skill after it clearly helped or misled you.
 
 ## Verification Checklist
 
@@ -118,3 +147,5 @@ Cut any line that doesn't change behavior versus the default. A tight skill of
 - [ ] Confirmed with the user before `create`/`delete`.
 - [ ] Patched (not routed around) any skill that failed you this session.
 - [ ] Any `delete` passed `absorbed_into` (umbrella name or `""`).
+- [ ] Rated skills that clearly helped or misled with `feedback` so the curator
+      keeps what works and prunes what doesn't.
