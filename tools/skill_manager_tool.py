@@ -1317,6 +1317,50 @@ def apply_skill_pending(payload: Dict[str, Any]) -> str:
         _skill_gate_bypass.reset(token)
 
 
+def _record_skill_feedback(name: str, helpful: Optional[bool]) -> str:
+    """Record a helpful/unhelpful effectiveness rating for a skill after use.
+
+    This is the quality signal the curator weighs alongside recency: a proven-
+    helpful skill resists idle-archival, a net-unhelpful one is surfaced for
+    pruning. Works for any skill (built-in, hub, or agent-created) — rating is
+    observability, it never mutates the skill itself.
+    """
+    if not name:
+        return tool_error("name is required for 'feedback'.", success=False)
+    if not isinstance(helpful, bool):
+        return tool_error(
+            "helpful is required for 'feedback': pass true when the skill "
+            "helped, false when it misled or added nothing over default behaviour.",
+            success=False,
+        )
+    if _find_skill(name) is None:
+        return tool_error(
+            f"Skill '{name}' not found — nothing to rate. Use skills_list to "
+            "see available skills.",
+            success=False,
+        )
+    try:
+        from tools.skill_usage import bump_feedback
+        bump_feedback(name, helpful)
+    except Exception as exc:  # telemetry must never hard-fail the tool
+        return tool_error(f"Failed to record feedback: {exc}", success=False)
+
+    verb = "helpful" if helpful else "unhelpful"
+    return json.dumps(
+        {
+            "success": True,
+            "name": name,
+            "feedback": verb,
+            "message": (
+                f"Recorded '{verb}' feedback for skill '{name}'. Proven-helpful "
+                "skills resist idle-archival; net-unhelpful ones are surfaced "
+                "for pruning."
+            ),
+        },
+        ensure_ascii=False,
+    )
+
+
 def skill_manage(
     action: str,
     name: str,
@@ -1328,12 +1372,18 @@ def skill_manage(
     new_string: str = None,
     replace_all: bool = False,
     absorbed_into: str = None,
+    helpful: bool = None,
 ) -> str:
     """
     Manage user-created skills. Dispatches to the appropriate action handler.
 
     Returns JSON string with results.
     """
+    # Feedback is telemetry, not a library write — handle it before the write
+    # gate / background-review preflight (which only guard content mutations).
+    if action == "feedback":
+        return _record_skill_feedback(name, helpful)
+
     preflight = _background_review_preflight(action, name)
     if preflight is not None:
         return json.dumps(preflight, ensure_ascii=False)
@@ -1384,7 +1434,7 @@ def skill_manage(
         result = _remove_file(name, file_path)
 
     else:
-        result = {"success": False, "error": f"Unknown action '{action}'. Use: create, edit, patch, delete, write_file, remove_file"}
+        result = {"success": False, "error": f"Unknown action '{action}'. Use: create, edit, patch, delete, write_file, remove_file, feedback"}
 
     if result.get("success"):
         try:
@@ -1431,7 +1481,11 @@ SKILL_MANAGE_SCHEMA = {
         "Actions: create (full SKILL.md + optional category), "
         "patch (old_string/new_string — preferred for fixes), "
         "edit (full SKILL.md rewrite — major overhauls only), "
-        "delete, write_file, remove_file.\n\n"
+        "delete, write_file, remove_file, "
+        "feedback (rate a skill's effectiveness after using it — pass "
+        "helpful=true when it helped, helpful=false when it misled or added "
+        "nothing; the curator keeps proven-helpful skills and prunes no-op "
+        "ones).\n\n"
         "On delete, pass `absorbed_into=<umbrella>` when you're merging this "
         "skill's content into another one, or `absorbed_into=\"\"` when you're "
         "pruning it with no forwarding target. This lets the curator tell "
@@ -1459,7 +1513,7 @@ SKILL_MANAGE_SCHEMA = {
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["create", "patch", "edit", "delete", "write_file", "remove_file"],
+                "enum": ["create", "patch", "edit", "delete", "write_file", "remove_file", "feedback"],
                 "description": "The action to perform."
             },
             "name": {
@@ -1517,6 +1571,16 @@ SKILL_MANAGE_SCHEMA = {
                 "type": "string",
                 "description": "Content for the file. Required for 'write_file'."
             },
+            "helpful": {
+                "type": "boolean",
+                "description": (
+                    "For 'feedback' only — true if the skill helped on the task "
+                    "you just used it for, false if it misled you or added "
+                    "nothing over default behaviour. Rate a skill after it "
+                    "materially shaped (or failed) a result so the curator can "
+                    "keep what works and prune what doesn't."
+                )
+            },
             "absorbed_into": {
                 "type": "string",
                 "description": (
@@ -1554,6 +1618,7 @@ registry.register(
         old_string=args.get("old_string"),
         new_string=args.get("new_string"),
         replace_all=args.get("replace_all", False),
-        absorbed_into=args.get("absorbed_into")),
+        absorbed_into=args.get("absorbed_into"),
+        helpful=args.get("helpful")),
     emoji="📝",
 )

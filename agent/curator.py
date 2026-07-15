@@ -302,9 +302,25 @@ def _cron_referenced_skills() -> Set[str]:
         return set()
 
 
+# A skill needs at least this much NET positive feedback (helpful − unhelpful)
+# before its proven value earns it an extended archive grace. A single stray
+# rating shouldn't shield a skill; a clear track record should.
+_EFFECTIVENESS_ARCHIVE_KEEP_THRESHOLD = 2
+# How much longer a proven-helpful skill may sit idle before auto-archival, as a
+# multiple of the normal archive_after_days window. Recency still demotes it to
+# STATE_STALE on schedule; only the harder removal-from-context step is deferred.
+_EFFECTIVENESS_ARCHIVE_GRACE_MULTIPLIER = 3
+
+
 def apply_automatic_transitions(now: Optional[datetime] = None) -> Dict[str, int]:
     """Walk every curator-managed skill and move active/stale/archived based on
     the latest real activity timestamp. Pinned skills are never touched.
+
+    Effectiveness modulates the archive step: a skill with proven net-positive
+    feedback (see ``_EFFECTIVENESS_ARCHIVE_KEEP_THRESHOLD``) gets a longer idle
+    grace before being archived, so a demonstrably useful skill isn't dropped
+    from context just for a quiet spell. Staleness is unaffected — the quality
+    signal only defers removal, it never blocks demotion.
 
     Built-ins (eligible only when ``curator.prune_builtins`` is on) are seeded
     with a baseline record the first time they're seen so their inactivity
@@ -368,7 +384,17 @@ def apply_automatic_transitions(now: Optional[datetime] = None) -> Dict[str, int
                 counts["reactivated"] += 1
             continue
 
-        if anchor <= archive_cutoff and current != _u.STATE_ARCHIVED:
+        # Proven-helpful skills earn a longer archive grace: a skill that has
+        # demonstrably helped (net-positive feedback) shouldn't be dropped from
+        # context just for going quiet. Only the archive step is deferred — the
+        # staleness demotion below still fires on the normal schedule.
+        effective_archive_cutoff = archive_cutoff
+        if _u.net_effectiveness(row) >= _EFFECTIVENESS_ARCHIVE_KEEP_THRESHOLD:
+            effective_archive_cutoff = now - timedelta(
+                days=get_archive_after_days() * _EFFECTIVENESS_ARCHIVE_GRACE_MULTIPLIER
+            )
+
+        if anchor <= effective_archive_cutoff and current != _u.STATE_ARCHIVED:
             ok, _msg = _u.archive_skill(name)
             if ok:
                 counts["archived"] += 1
