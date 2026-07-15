@@ -164,12 +164,12 @@ def build_dashboard_parser(
     )
     dashboard_register_parser = dashboard_subparsers.add_parser(
         "register",
-        help="Register a self-hosted dashboard with Nous Portal (writes the OAuth client ID to .env)",
+        help="(removed) Automated dashboard OAuth-client registration — required the removed Nous provider",
         description=(
-            "Register this install as a self-hosted dashboard with your Nous "
-            "Portal account. Creates an OAuth client, writes "
-            "HERCULES_DASHBOARD_OAUTH_CLIENT_ID into ~/.hercules/.env, and prints "
-            "how to engage the login gate. Requires being logged in (hercules setup)."
+            "No longer available. This command registered a self-hosted dashboard "
+            "OAuth client automatically, which required the removed Nous provider. "
+            "Configure the dashboard OAuth client manually via "
+            "HERCULES_DASHBOARD_OAUTH_CLIENT_ID in ~/.hercules/.env instead."
         ),
     )
     dashboard_register_parser.add_argument(

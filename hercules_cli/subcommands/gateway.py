@@ -248,8 +248,8 @@ def build_gateway_parser(
         help="Enroll this gateway with a relay connector (writes relay auth creds to .env)",
         description=(
             "Redeem a single-use enrollment token with a relay connector. "
-            "Authenticates as your Nous Portal account (the connector derives the "
-            "authoritative tenant from it), mints this gateway's per-gateway secret "
+            "Authenticates via your configured identity provider (the connector "
+            "derives the authoritative tenant from it), mints this gateway's per-gateway secret "
             "and per-tenant delivery key, and writes GATEWAY_RELAY_ID / "
             "GATEWAY_RELAY_SECRET / GATEWAY_RELAY_DELIVERY_KEY into ~/.hercules/.env. "
             "Requires being logged in (hercules setup). Not available in managed installs."
