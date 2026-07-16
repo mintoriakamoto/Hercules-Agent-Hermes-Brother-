@@ -456,17 +456,24 @@ class TestBlockingApprovalE2E:
         t = threading.Thread(target=agent_thread)
         t.start()
 
-        for _ in range(50):
+        # The approval entry is enqueued before the notify callback fires and
+        # the wait is a level-triggered Event, so once `notified` is set the
+        # resolve below is race-free. The only failure mode is the notification
+        # taking longer than the poll window under CI load — hence a generous
+        # 20s ceiling (exits as soon as it arrives; the ceiling only bites on a
+        # genuine hang). A fixed 2.5s window was the source of a flaky red.
+        for _ in range(400):
             if notified:
                 break
             time.sleep(0.05)
 
-        assert len(notified) == 1
+        assert len(notified) == 1, "approval notification never arrived"
         assert "rm -rf /important" in notified[0]["command"]
 
         resolve_gateway_approval(session_key, "once")
-        t.join(timeout=5)
+        t.join(timeout=10)
 
+        assert not t.is_alive(), "agent thread did not unblock after resolve"
         assert result_holder[0] is not None
         assert result_holder[0]["approved"] is True
         unregister_gateway_notify(session_key)
@@ -503,14 +510,22 @@ class TestBlockingApprovalE2E:
 
         t = threading.Thread(target=agent_thread)
         t.start()
-        for _ in range(50):
+        # Generous ceiling (20s): the entry is enqueued before the notify fires
+        # and the wait is a level-triggered Event, so resolving after `notified`
+        # is set is race-free. A fixed 2.5s window flaked red under CI load —
+        # resolving into an empty queue left the thread blocked and the result
+        # holder None.
+        for _ in range(400):
             if notified:
                 break
             time.sleep(0.05)
 
+        assert notified, "approval notification never arrived"
         resolve_gateway_approval(session_key, "deny")
-        t.join(timeout=5)
+        t.join(timeout=10)
 
+        assert not t.is_alive(), "agent thread did not unblock after deny"
+        assert result_holder[0] is not None
         assert result_holder[0]["approved"] is False
         assert "BLOCKED" in result_holder[0]["message"]
         unregister_gateway_notify(session_key)
