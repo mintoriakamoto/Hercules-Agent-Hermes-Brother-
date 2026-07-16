@@ -412,10 +412,19 @@ def apply_automatic_transitions(now: Optional[datetime] = None) -> Dict[str, int
         elif net <= _EFFECTIVENESS_ARCHIVE_PRUNE_THRESHOLD:
             # Shorten the window, but never below stale_after_days — archival
             # always follows staleness, it just arrives sooner for a skill that
-            # has demonstrably hurt more than helped.
-            penalized_days = max(
-                get_stale_after_days(),
-                get_archive_after_days() // _EFFECTIVENESS_ARCHIVE_PENALTY_DIVISOR,
+            # has demonstrably hurt more than helped. The outer min() guards the
+            # degenerate config archive_after_days < stale_after_days: without
+            # it the stale-floor could push the penalized window PAST the plain
+            # archive window, making a harmful skill stickier than a neutral one
+            # (penalty inverted into a reward). Clamp so a penalty can only ever
+            # shorten, never lengthen, relative to the neutral window.
+            archive_days = get_archive_after_days()
+            penalized_days = min(
+                archive_days,
+                max(
+                    get_stale_after_days(),
+                    archive_days // _EFFECTIVENESS_ARCHIVE_PENALTY_DIVISOR,
+                ),
             )
             effective_archive_cutoff = now - timedelta(days=penalized_days)
 

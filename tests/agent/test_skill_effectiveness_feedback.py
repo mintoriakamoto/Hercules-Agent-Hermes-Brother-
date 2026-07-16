@@ -288,6 +288,39 @@ def test_single_unhelpful_rating_does_not_accelerate(env, monkeypatch):
     assert skill_usage.get_record("barely-downvoted")["state"] == "stale"
 
 
+def test_harmful_penalty_never_lengthens_window_when_archive_lt_stale(env, monkeypatch):
+    """Degenerate config archive_after_days < stale_after_days must not invert
+    the penalty into a reward — a harmful skill must never outlive a neutral one
+    (F1). With stale=30, archive=20, a harmful skill idle 25d must archive (the
+    old max()-only floor gave it a 30d window, making it stickier than neutral)."""
+    home, skill_usage, curator, _tool = env
+    skills_dir = home / "skills"
+    _write_skill(skills_dir, "harmful-oddcfg")
+    _write_skill(skills_dir, "neutral-oddcfg")
+
+    now = datetime(2026, 4, 30, tzinfo=timezone.utc)
+    idle = (now - timedelta(days=25)).isoformat()
+    skill_usage.save_usage({
+        "harmful-oddcfg": {
+            "created_by": "agent", "created_at": idle, "last_used_at": idle,
+            "use_count": 5, "helpful_count": 0, "unhelpful_count": 4,  # net −4
+            "state": "active",
+        },
+        "neutral-oddcfg": {
+            "created_by": "agent", "created_at": idle, "last_used_at": idle,
+            "use_count": 5, "state": "active",
+        },
+    })
+    monkeypatch.setattr(curator, "get_stale_after_days", lambda: 30)
+    monkeypatch.setattr(curator, "get_archive_after_days", lambda: 20)
+
+    curator.apply_automatic_transitions(now=now)
+    # Neutral archives at 20d (25 ≥ 20). The harmful skill must archive no later
+    # — i.e. it too must be archived, never left active with a longer window.
+    assert skill_usage.get_record("neutral-oddcfg")["state"] == "archived"
+    assert skill_usage.get_record("harmful-oddcfg")["state"] == "archived"
+
+
 # ---------------------------------------------------------------------------
 # Tool surface: skill_manage(action="feedback")
 # ---------------------------------------------------------------------------

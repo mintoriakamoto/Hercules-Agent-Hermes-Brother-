@@ -166,3 +166,21 @@ def test_co_activation_capture_never_raises_on_malformed_results(provider):
     provider._note_co_activation([{"no_fact_id": 1}, "not-a-dict", None, {"fact_id": "x"}])
     # No episode should have been recorded from unusable rows.
     assert len(provider._last_recall) == 0
+
+
+def test_last_recall_does_not_leak_across_sessions(provider):
+    """Co-activation episodes must not survive a session boundary: rating a fact
+    helpful in a new session must not forge an edge to a fact that was only
+    co-recalled in a previous, already-closed session (F3)."""
+    a = _add(provider, "Session-A fact one about the payment gateway")
+    b = _add(provider, "Session-A fact two about the payment gateway")
+    res = _search(provider, "payment gateway session-a")
+    assert {a, b} <= {r["fact_id"] for r in res["results"]}  # co-recalled → episode
+
+    # Session A ends (ambiguous outcome → no attribution, but buffers cleared).
+    provider.on_session_end([{"role": "user", "content": "ok"}])
+
+    # Session B: rating fact a helpful must NOT reinforce b — that co-recall
+    # belonged to the closed session.
+    _feedback(provider, a, "helpful")
+    assert provider._store.get_associations(a) == []

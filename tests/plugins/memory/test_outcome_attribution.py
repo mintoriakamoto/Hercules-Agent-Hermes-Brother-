@@ -36,13 +36,30 @@ def test_classifier_detects_negative():
     assert _classify([{"role": "user", "content": "that didn't work at all"}]) == "negative"
 
 
-def test_classifier_negative_wins_across_recent_turns():
+def test_classifier_only_judges_the_final_user_turn():
+    # A correction in an EARLIER turn followed by a pivot must NOT attribute —
+    # the session moved on, and the later recalls aren't what was criticized.
     msgs = [
         {"role": "user", "content": "that's wrong"},
         {"role": "assistant", "content": "let me fix it"},
-        {"role": "user", "content": "ok"},  # bland final turn
+        {"role": "user", "content": "ok, separately, tell me about caching"},
     ]
-    assert _classify(msgs) == "negative"
+    assert _classify(msgs) is None
+    # But a correction IN the final turn does fire.
+    assert _classify(msgs[:1] + [{"role": "user", "content": "no, that's wrong"}]) == "negative"
+
+
+def test_classifier_ignores_benign_substrings():
+    # These all read POSITIVE or NONE — never negative — despite containing
+    # substrings of old (removed/ambiguous) negative markers.
+    assert _classify([{"role": "user", "content": "actually it's perfect now, thanks!"}]) == "positive"
+    assert _classify([{"role": "user", "content": "the incorrectly-named var is fixed now, thanks"}]) == "positive"
+    assert _classify([{"role": "user", "content": "no, that makes sense now"}]) is None
+    # The critical guarantee: benign phrasing never reads NEGATIVE (the harmful
+    # direction — a -0.03 penalty on facts a happy session relied on).
+    for benign in ("actually it's working now", "that makes sense, nice",
+                   "the incorrectly-typed name is fine now"):
+        assert _classify([{"role": "user", "content": benign}]) != "negative"
 
 
 def test_classifier_ambiguous_is_none():
@@ -131,6 +148,27 @@ def test_attribution_is_capped(provider):
 
     changed = [fid for fid in ids if _trust(provider, fid) != pytest.approx(befores[fid])]
     assert len(changed) <= _AUTO_ATTRIBUTION_MAX_FACTS
+
+
+def test_recall_history_does_not_leak_across_sessions(provider):
+    """Session rotation delivers on_session_end (not a fresh initialize), so the
+    recalled set must be cleared at session end — otherwise session 1's facts
+    get re-credited when session 2 ends."""
+    fid1 = provider._store.add_fact("Session-one fact about the load balancer")
+    _search(provider, "session-one load balancer")
+    # Session 1 ends positive → fid1 credited once.
+    provider.on_session_end([{"role": "user", "content": "perfect, that's exactly right"}])
+    after_s1 = _trust(provider, fid1)
+
+    # Session 2 (same provider instance — no re-initialize, as on /new) recalls a
+    # DIFFERENT fact and ends positive. fid1 was NOT recalled in session 2, so
+    # its trust must be untouched by session 2's outcome.
+    fid2 = provider._store.add_fact("Session-two fact about the message queue")
+    _search(provider, "session-two message queue")
+    provider.on_session_end([{"role": "user", "content": "thanks, that worked"}])
+
+    assert _trust(provider, fid1) == pytest.approx(after_s1)          # not re-credited
+    assert _trust(provider, fid2) == pytest.approx(0.5 + _AUTO_ATTRIBUTION_POSITIVE_DELTA)
 
 
 def test_disabled_via_config(tmp_path):

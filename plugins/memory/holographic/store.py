@@ -555,14 +555,21 @@ class MemoryStore:
             if content is not None:
                 self._compute_hrr_vector(fact_id, content)
                 self._compute_embedding(fact_id, content)
-            # Rebuild the bank for the fact's (possibly new) category. When the
-            # category changed, the OLD category's bank must also be rebuilt —
-            # otherwise it keeps this fact's vector even though the fact no
-            # longer belongs to it, skewing that bank's compositional queries.
-            new_category = category if category is not None else old_category
-            self._rebuild_bank(new_category)
-            if category is not None and category != old_category:
-                self._rebuild_bank(old_category)
+            # A category's HRR bank is a bundle of its facts' vectors — it
+            # depends ONLY on content (vectors) and membership (category), never
+            # on trust or tags. So rebuild only when content changed (this fact's
+            # vector moved) or the fact changed category (bank membership moved).
+            # A trust-only update — the common case for auto-attribution and
+            # co-activation, which call update_fact(trust_delta=…) in tight
+            # loops — must NOT trigger a full O(bank) rebuild each time.
+            content_changed = content is not None
+            category_changed = category is not None and category != old_category
+            if content_changed or category_changed:
+                new_category = category if category is not None else old_category
+                self._rebuild_bank(new_category)
+                if category_changed:
+                    # The OLD category's bank must drop this fact's vector.
+                    self._rebuild_bank(old_category)
 
             return True
 
