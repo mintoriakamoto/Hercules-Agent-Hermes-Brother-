@@ -10,6 +10,7 @@ import subprocess
 import sys
 import textwrap
 import threading
+import time
 
 import pytest
 import yaml
@@ -83,24 +84,47 @@ def test_profile_local_mcp_tool_is_visible_in_slash_worker(tmp_path):
         assert proc.stdin is not None
         assert proc.stdout is not None
         stdout = proc.stdout
-        threading.Thread(
-            target=lambda: output.put(stdout.readline()),
-            daemon=True,
-        ).start()
-        proc.stdin.write(json.dumps({"id": 1, "command": "/tools"}) + "\n")
-        proc.stdin.flush()
-        try:
-            # Generous ceiling: the worker boots the whole app and runs MCP
-            # discovery (spawning a probe server) before answering, which is
-            # ~3-4s when healthy but can spike well past 10s under CI load —
-            # the flaky-timeout that reddened an otherwise-passing run. A slow
-            # boot isn't a failure; only a genuinely dead worker is.
-            line = output.get(timeout=60)
-        except queue.Empty:
-            pytest.fail("slash worker produced no /tools response within 60 seconds")
-        response = json.loads(line)
-        assert response["ok"] is True
-        assert "mcp__profileprobe__hercules_61922_profile_probe" in response["output"]
+
+        # Drain every stdout line for the lifetime of the test so each repeated
+        # /tools poll below can collect its own response.
+        def _pump() -> None:
+            for line in stdout:
+                output.put(line)
+
+        threading.Thread(target=_pump, daemon=True).start()
+
+        # Two independent slownesses stack under CI load: the worker boots the
+        # whole app before answering /tools at all (handled by the generous
+        # deadline), AND MCP discovery of the profile-local probe server can
+        # finish slightly AFTER the worker starts answering — so a single poll
+        # can race and see a tool list that doesn't include the probe yet. Poll
+        # /tools until the probe tool appears or the deadline elapses: a slow
+        # boot or slightly-late discovery isn't a failure; a genuinely missing
+        # tool after the full window is.
+        marker = "mcp__profileprobe__hercules_61922_profile_probe"
+        deadline = time.monotonic() + 60.0
+        req_id = 0
+        last_output = ""
+        found = False
+        while time.monotonic() < deadline:
+            req_id += 1
+            proc.stdin.write(json.dumps({"id": req_id, "command": "/tools"}) + "\n")
+            proc.stdin.flush()
+            try:
+                line = output.get(timeout=max(1.0, deadline - time.monotonic()))
+            except queue.Empty:
+                break
+            response = json.loads(line)
+            assert response["ok"] is True
+            last_output = response.get("output", "")
+            if marker in last_output:
+                found = True
+                break
+            time.sleep(0.5)  # let discovery settle, then re-poll
+        assert found, (
+            f"profile-local MCP tool {marker!r} not visible within 60s; "
+            f"last /tools output: {last_output!r}"
+        )
     finally:
         proc.terminate()
         try:
