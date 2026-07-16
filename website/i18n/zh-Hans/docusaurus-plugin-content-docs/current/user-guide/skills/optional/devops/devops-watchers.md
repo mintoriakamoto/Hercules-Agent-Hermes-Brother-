@@ -81,7 +81,7 @@ python $HERCULES_HOME/skills/devops/watchers/scripts/watch_rss.py \
 
 ```bash
 python $HERCULES_HOME/skills/devops/watchers/scripts/watch_github.py \
-  --name hercules-issues --repo NousResearch/hercules-agent --scope issues
+  --name hercules-issues --repo mintoriakamoto/Hercules-Agent-Hermes-Brother- --scope issues
 ```
 
 轮询任意 JSON API：

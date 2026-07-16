@@ -81,7 +81,7 @@ Watch a GitHub repo (set `GITHUB_TOKEN` in `${HERCULES_HOME:-~/.hercules}/.env` 
 
 ```bash
 python $HERCULES_HOME/skills/devops/watchers/scripts/watch_github.py \
-  --name hercules-issues --repo NousResearch/hercules-agent --scope issues
+  --name hercules-issues --repo mintoriakamoto/Hercules-Agent-Hermes-Brother- --scope issues
 ```
 
 Poll an arbitrary JSON API:

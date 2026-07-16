@@ -96,7 +96,7 @@ const config: Config = {
         docs: {
           routeBasePath: '/',  // Docs at the root of /docs/
           sidebarPath: './sidebars.ts',
-          editUrl: 'https://github.com/NousResearch/hercules-agent/edit/main/website/',
+          editUrl: 'https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/edit/main/website/',
         },
         blog: false,
         theme: {
@@ -151,7 +151,7 @@ const config: Config = {
           position: 'right',
         },
         {
-          href: 'https://github.com/NousResearch/hercules-agent',
+          href: 'https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-',
           label: 'GitHub',
           position: 'right',
         },
@@ -178,7 +178,7 @@ const config: Config = {
           title: 'Community',
           items: [
             { label: 'Discord', href: 'https://discord.gg/NousResearch' },
-            { label: 'GitHub Issues', href: 'https://github.com/NousResearch/hercules-agent/issues' },
+            { label: 'GitHub Issues', href: 'https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/issues' },
             { label: 'Skills Hub', href: 'https://agentskills.io' },
           ],
         },
@@ -186,7 +186,7 @@ const config: Config = {
           title: 'More',
           items: [
             { label: 'Desktop Download', href: 'https://hercules-agent.nousresearch.com/' },
-            { label: 'GitHub', href: 'https://github.com/NousResearch/hercules-agent' },
+            { label: 'GitHub', href: 'https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-' },
             { label: 'Nous Research', href: 'https://nousresearch.com' },
           ],
         },

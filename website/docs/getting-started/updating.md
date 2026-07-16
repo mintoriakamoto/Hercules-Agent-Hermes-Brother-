@@ -155,7 +155,7 @@ You no longer need to wrap `hercules update` in `screen` or `tmux` to survive a 
 hercules version
 ```
 
-Compare against the latest release at the [GitHub releases page](https://github.com/NousResearch/hercules-agent/releases).
+Compare against the latest release at the [GitHub releases page](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/releases).
 
 ### Updating from Messaging Platforms
 

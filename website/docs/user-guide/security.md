@@ -347,7 +347,7 @@ docker exec -u hercules hercules-agent hercules pairing approve telegram ABC12DE
 If you already ran the command as root and the user is still unauthorized,
 restart the container — the entrypoint will fix ownership on the next start.
 
-[i10270]: https://github.com/NousResearch/hercules-agent/issues/10270
+[i10270]: https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/issues/10270
 :::
 
 **Storage:** Pairing data is stored in `~/.hercules/pairing/` with per-platform JSON files:

@@ -81,7 +81,7 @@ Esto no es una barra de calidad — es una decisión de acoplamiento y mantenimi
 ### Clonar e instalar
 
 ```bash
-git clone https://github.com/NousResearch/hercules-agent.git
+git clone https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git
 cd hercules-agent
 
 # Crear venv con Python 3.11
@@ -581,7 +581,7 @@ test(tools): añadir tests unitarios para file_operations
 
 ## Reportar Issues
 
-- Usa [GitHub Issues](https://github.com/NousResearch/hercules-agent/issues)
+- Usa [GitHub Issues](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/issues)
 - Incluye: SO, versión de Python, versión de Hercules (`hercules version`), traza de error completa
 - Incluye pasos para reproducir
 - Verifica los issues existentes antes de crear duplicados

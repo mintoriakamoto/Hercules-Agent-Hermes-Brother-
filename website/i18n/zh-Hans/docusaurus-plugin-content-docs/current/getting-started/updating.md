@@ -123,7 +123,7 @@ tail -f ~/.hercules/logs/update.log
 hercules version
 ```
 
-与 [GitHub releases 页面](https://github.com/NousResearch/hercules-agent/releases) 上的最新版本进行比较。
+与 [GitHub releases 页面](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/releases) 上的最新版本进行比较。
 
 ### 从消息平台更新
 

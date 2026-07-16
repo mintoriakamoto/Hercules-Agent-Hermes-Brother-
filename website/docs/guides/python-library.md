@@ -15,19 +15,19 @@ Hercules isn't just a CLI tool. You can import `AIAgent` directly and use it pro
 Install Hercules directly from the repository:
 
 ```bash
-pip install git+https://github.com/NousResearch/hercules-agent.git
+pip install git+https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git
 ```
 
 Or with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv pip install git+https://github.com/NousResearch/hercules-agent.git
+uv pip install git+https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git
 ```
 
 You can also pin it in your `requirements.txt`:
 
 ```text
-hercules-agent @ git+https://github.com/NousResearch/hercules-agent.git
+hercules-agent @ git+https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git
 ```
 
 :::tip

@@ -839,6 +839,6 @@ If using OpenRouter, make sure your API key has credits. A 400 from OpenRouter o
 
 If your issue isn't covered here:
 
-1. **Search existing issues:** [GitHub Issues](https://github.com/NousResearch/hercules-agent/issues)
+1. **Search existing issues:** [GitHub Issues](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/issues)
 2. **Ask the community:** [Nous Research Discord](https://discord.gg/nousresearch)
 3. **File a bug report:** Include your OS, Python version (`python3 --version`), Hercules version (`hercules --version`), and the full error message

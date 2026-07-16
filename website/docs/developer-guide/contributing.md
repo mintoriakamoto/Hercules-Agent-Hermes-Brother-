@@ -89,7 +89,7 @@ which silently destroys the running runtime mid-session. Keeping it outside the
 tree means no relative path from the workspace resolves to it.
 
 ```bash
-git clone https://github.com/NousResearch/hercules-agent.git
+git clone https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git
 cd hercules-agent
 
 # Create venv with Python 3.11, OUTSIDE the source tree
@@ -143,7 +143,7 @@ scripts/run_tests.sh
 - **Comments**: Only when explaining non-obvious intent, trade-offs, or API quirks
 - **Error handling**: Catch specific exceptions. Use `logger.warning()`/`logger.error()` with `exc_info=True` for unexpected errors
 - **Cross-platform**: Never assume Unix (see below)
-- **Profile-safe paths**: Never hardcode `~/.hercules` — use `get_hercules_home()` from `hercules_constants` for code paths and `display_hercules_home()` for user-facing messages. See [AGENTS.md](https://github.com/NousResearch/hercules-agent/blob/main/AGENTS.md#profiles-multi-instance-support) for full rules.
+- **Profile-safe paths**: Never hardcode `~/.hercules` — use `get_hercules_home()` from `hercules_constants` for code paths and `display_hercules_home()` for user-facing messages. See [AGENTS.md](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/blob/main/AGENTS.md#profiles-multi-instance-support) for full rules.
 
 ## Cross-Platform Compatibility
 
@@ -281,7 +281,7 @@ fix(security): prevent shell injection in sudo password piping
 
 ## Reporting Issues
 
-- Use [GitHub Issues](https://github.com/NousResearch/hercules-agent/issues)
+- Use [GitHub Issues](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/issues)
 - Include: OS, Python version, Hercules version (`hercules version`), full error traceback
 - Include steps to reproduce
 - Check existing issues before creating duplicates
@@ -295,4 +295,4 @@ fix(security): prevent shell injection in sudo password piping
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [MIT License](https://github.com/NousResearch/hercules-agent/blob/main/LICENSE).
+By contributing, you agree that your contributions will be licensed under the [MIT License](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/blob/main/LICENSE).

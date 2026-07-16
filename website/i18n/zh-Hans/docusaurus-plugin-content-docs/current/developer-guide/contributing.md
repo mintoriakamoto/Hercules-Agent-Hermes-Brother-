@@ -65,7 +65,7 @@ scripts/run_tests.sh
 只有在你明确不想使用 Hercules managed install layout 时才使用这种方式（例如容器或 CI job 里的临时 clone）。如果这样安装，请确保运行的是这个 venv 里的 `hercules` entrypoint；运行系统 `python3 -m hercules_cli.main` 可能会加载无关的系统 Python 包。
 
 ```bash
-git clone https://github.com/NousResearch/hercules-agent.git
+git clone https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git
 cd hercules-agent
 
 # 使用 Python 3.11 创建虚拟环境
@@ -117,7 +117,7 @@ scripts/run_tests.sh
 - **注释**：仅在解释非显而易见的意图、权衡取舍或 API 特殊行为时添加
 - **错误处理**：捕获具体异常。对于意外错误，使用 `logger.warning()`/`logger.error()` 并设置 `exc_info=True`
 - **跨平台**：不得假设 Unix 环境（见下文）
-- **Profile 安全路径**：不得硬编码 `~/.hercules` — 代码路径使用 `hercules_constants` 中的 `get_hercules_home()`，面向用户的消息使用 `display_hercules_home()`。完整规则参见 [AGENTS.md](https://github.com/NousResearch/hercules-agent/blob/main/AGENTS.md#profiles-multi-instance-support)。
+- **Profile 安全路径**：不得硬编码 `~/.hercules` — 代码路径使用 `hercules_constants` 中的 `get_hercules_home()`，面向用户的消息使用 `display_hercules_home()`。完整规则参见 [AGENTS.md](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/blob/main/AGENTS.md#profiles-multi-instance-support)。
 
 ## 跨平台兼容性
 
@@ -253,7 +253,7 @@ fix(security): prevent shell injection in sudo password piping
 
 ## 报告问题
 
-- 使用 [GitHub Issues](https://github.com/NousResearch/hercules-agent/issues)
+- 使用 [GitHub Issues](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/issues)
 - 请包含：操作系统、Python 版本、Hercules 版本（`hercules version`）、完整错误堆栈
 - 包含复现步骤
 - 创建前请检查是否已有重复 issue
@@ -267,4 +267,4 @@ fix(security): prevent shell injection in sudo password piping
 
 ## 许可证
 
-提交贡献即表示您同意您的贡献将以 [MIT 许可证](https://github.com/NousResearch/hercules-agent/blob/main/LICENSE) 授权。
+提交贡献即表示您同意您的贡献将以 [MIT 许可证](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/blob/main/LICENSE) 授权。

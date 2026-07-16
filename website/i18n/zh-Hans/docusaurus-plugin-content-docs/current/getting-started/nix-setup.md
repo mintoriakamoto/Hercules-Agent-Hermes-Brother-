@@ -35,11 +35,11 @@ Hercules Agent 提供了一个 Nix flake，支持三个层级的集成：
 
 ```bash
 # 直接运行（首次使用时构建，之后使用缓存）
-nix run github:NousResearch/hercules-agent -- setup
-nix run github:NousResearch/hercules-agent -- chat
+nix run github:mintoriakamoto/Hercules-Agent-Hermes-Brother- -- setup
+nix run github:mintoriakamoto/Hercules-Agent-Hermes-Brother- -- chat
 
 # 或持久化安装
-nix profile install github:NousResearch/hercules-agent
+nix profile install github:mintoriakamoto/Hercules-Agent-Hermes-Brother-
 hercules setup
 hercules chat
 ```
@@ -50,7 +50,7 @@ hercules chat
 <summary><strong>从本地克隆构建</strong></summary>
 
 ```bash
-git clone https://github.com/NousResearch/hercules-agent.git
+git clone https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git
 cd hercules-agent
 nix build
 ./result/bin/hercules setup
@@ -75,7 +75,7 @@ nix build
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    hercules-agent.url = "github:NousResearch/hercules-agent";
+    hercules-agent.url = "github:mintoriakamoto/Hercules-Agent-Hermes-Brother-";
   };
 
   outputs = { nixpkgs, hercules-agent, ... }: {
@@ -685,7 +685,7 @@ services.hercules-agent = {
 
 ```nix
 {
-  inputs.hercules-agent.url = "github:NousResearch/hercules-agent";
+  inputs.hercules-agent.url = "github:mintoriakamoto/Hercules-Agent-Hermes-Brother-";
   outputs = { hercules-agent, nixpkgs, ... }: {
     nixpkgs.overlays = [ hercules-agent.overlays.default ];
     # 然后：
