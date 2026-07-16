@@ -592,6 +592,16 @@ class HolographicMemoryProvider(MemoryProvider):
             self._attribute_outcome(messages)
         except Exception as exc:
             logger.debug("outcome attribution skipped: %s", exc)
+        finally:
+            # Reset the recall history for the NEXT session. Session rotation
+            # (/new) delivers on_session_end → on_session_switch, NOT a fresh
+            # initialize(), so without this the recalled set would accumulate
+            # across sessions and re-credit earlier facts on every subsequent
+            # session end. Clearing here consumes this session's recalls exactly
+            # once, whichever way the next session starts.
+            recalled = getattr(self, "_session_recalled", None)
+            if recalled is not None:
+                recalled.clear()
         # Hygiene: prune Hebbian association edges whose time-decayed strength
         # has fallen below the floor, so the graph stays bounded and reflects
         # associations that are still paying off. Best-effort, once per session.

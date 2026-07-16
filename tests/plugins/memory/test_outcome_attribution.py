@@ -133,6 +133,27 @@ def test_attribution_is_capped(provider):
     assert len(changed) <= _AUTO_ATTRIBUTION_MAX_FACTS
 
 
+def test_recall_history_does_not_leak_across_sessions(provider):
+    """Session rotation delivers on_session_end (not a fresh initialize), so the
+    recalled set must be cleared at session end — otherwise session 1's facts
+    get re-credited when session 2 ends."""
+    fid1 = provider._store.add_fact("Session-one fact about the load balancer")
+    _search(provider, "session-one load balancer")
+    # Session 1 ends positive → fid1 credited once.
+    provider.on_session_end([{"role": "user", "content": "perfect, that's exactly right"}])
+    after_s1 = _trust(provider, fid1)
+
+    # Session 2 (same provider instance — no re-initialize, as on /new) recalls a
+    # DIFFERENT fact and ends positive. fid1 was NOT recalled in session 2, so
+    # its trust must be untouched by session 2's outcome.
+    fid2 = provider._store.add_fact("Session-two fact about the message queue")
+    _search(provider, "session-two message queue")
+    provider.on_session_end([{"role": "user", "content": "thanks, that worked"}])
+
+    assert _trust(provider, fid1) == pytest.approx(after_s1)          # not re-credited
+    assert _trust(provider, fid2) == pytest.approx(0.5 + _AUTO_ATTRIBUTION_POSITIVE_DELTA)
+
+
 def test_disabled_via_config(tmp_path):
     p = HolographicMemoryProvider(config={"db_path": str(tmp_path / "off.db"),
                                           "auto_attribution": False})
