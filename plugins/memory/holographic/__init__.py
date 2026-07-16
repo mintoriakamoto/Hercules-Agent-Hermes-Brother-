@@ -73,6 +73,15 @@ _CO_ACTIVATION_MEMORY = 12        # recall episodes retained for reinforcement
 _CO_ACTIVATION_MAX_FANOUT = 12    # cap co-boosted facts per feedback event
 _ASSOCIATION_DELTA = 0.15         # durable Hebbian edge strengthened per event
 
+# Automatic spreading activation on prefetch: after the every-turn search, pull
+# in the strongest facts that have proven useful *together* with the top hit,
+# so learned clusters surface passively without an explicit `spread` call. Only
+# well-established edges qualify (a query landing on one member of a proven
+# cluster then recalls the rest), and the fan-in is tightly capped so the
+# always-on context stays lean.
+_PREFETCH_SPREAD_MIN_STRENGTH = 0.3
+_PREFETCH_SPREAD_MAX = 2
+
 
 # ---------------------------------------------------------------------------
 # Tool schemas (unchanged from original PR)
@@ -335,14 +344,48 @@ class HolographicMemoryProvider(MemoryProvider):
                     results = results[:5]
             if not results:
                 return ""
+            # Spreading activation: surface facts durably associated with the
+            # top hit (learned from outcomes), even if they didn't match the
+            # query — this is recall of the whole proven cluster, not just the
+            # keyword match. Bounded and gated on a meaningful edge strength.
+            spread = self._prefetch_spread(results)
             lines = []
             for r in results:
                 trust = r.get("trust_score", r.get("trust", 0))
                 lines.append(f"- [{trust:.1f}] {r.get('content', '')}")
+            for r in spread:
+                trust = r.get("trust_score", r.get("trust", 0))
+                lines.append(f"- [{trust:.1f}] ↳ {r.get('content', '')}")
             return "## Holographic Memory\n" + "\n".join(lines)
         except Exception as e:
             logger.debug("Holographic prefetch failed: %s", e)
             return ""
+
+    def _prefetch_spread(self, results: list) -> list:
+        """Facts to spread-activate into prefetch from the top direct hit.
+
+        Returns up to ``_PREFETCH_SPREAD_MAX`` facts durably associated with the
+        strongest result — excluding anything already surfaced — ordered by
+        learned association strength. Best-effort: any failure yields nothing.
+        """
+        store = self._store
+        if store is None or not results:
+            return []
+        try:
+            top_id = results[0].get("fact_id")
+            if not isinstance(top_id, int):
+                return []
+            already = {r.get("fact_id") for r in results}
+            partners = store.get_associations(
+                top_id,
+                limit=_PREFETCH_SPREAD_MAX + len(results),
+                min_strength=_PREFETCH_SPREAD_MIN_STRENGTH,
+            )
+            spread = [p for p in partners if p.get("fact_id") not in already]
+            return spread[:_PREFETCH_SPREAD_MAX]
+        except Exception as exc:
+            logger.debug("prefetch spreading activation skipped: %s", exc)
+            return []
 
     def sync_turn(self, user_content: str, assistant_content: str, *, session_id: str = "") -> None:
         # Holographic memory stores explicit facts via tools, not auto-sync.
