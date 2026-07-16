@@ -84,6 +84,20 @@ CREATE TABLE IF NOT EXISTS memory_banks (
     fact_count INTEGER DEFAULT 0,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Durable Hebbian association edges: facts that repeatedly prove useful
+-- together accumulate strength here, so recall can "fire together" — surface
+-- the whole learned cluster even when the query only matches one member.
+-- Undirected: each edge is stored once with fact_a < fact_b (canonical order).
+CREATE TABLE IF NOT EXISTS fact_associations (
+    fact_a     INTEGER NOT NULL REFERENCES facts(fact_id),
+    fact_b     INTEGER NOT NULL REFERENCES facts(fact_id),
+    strength   REAL NOT NULL DEFAULT 0.0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (fact_a, fact_b)
+);
+CREATE INDEX IF NOT EXISTS idx_assoc_a ON fact_associations(fact_a, strength DESC);
+CREATE INDEX IF NOT EXISTS idx_assoc_b ON fact_associations(fact_b, strength DESC);
 """
 
 # Trust adjustment constants
@@ -405,6 +419,10 @@ class MemoryStore:
             self._conn.execute(
                 "DELETE FROM fact_entities WHERE fact_id = ?", (fact_id,)
             )
+            self._conn.execute(
+                "DELETE FROM fact_associations WHERE fact_a = ? OR fact_b = ?",
+                (fact_id, fact_id),
+            )
             self._conn.execute("DELETE FROM facts WHERE fact_id = ?", (fact_id,))
             self._conn.commit()
             self._rebuild_bank(row["category"])
@@ -482,6 +500,84 @@ class MemoryStore:
                 "new_trust":    new_trust,
                 "helpful_count": row["helpful_count"] + helpful_increment,
             }
+
+    # ------------------------------------------------------------------
+    # Durable Hebbian associations (spreading activation)
+    # ------------------------------------------------------------------
+
+    def reinforce_association(self, fact_id_a: int, fact_id_b: int, delta: float = 0.1) -> float:
+        """Strengthen the undirected association between two facts.
+
+        Strength accumulates (capped at 1.0) so a pair that keeps proving
+        useful together rises above one-off co-occurrences. Self-edges and
+        edges to non-existent facts are ignored. Returns the new strength
+        (0.0 when the edge was rejected).
+        """
+        a, b = sorted((int(fact_id_a), int(fact_id_b)))
+        if a == b:
+            return 0.0
+        with self._lock:
+            present = self._conn.execute(
+                "SELECT COUNT(*) FROM facts WHERE fact_id IN (?, ?)", (a, b)
+            ).fetchone()[0]
+            if present < 2:
+                return 0.0
+            self._conn.execute(
+                """
+                INSERT INTO fact_associations (fact_a, fact_b, strength, updated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(fact_a, fact_b) DO UPDATE SET
+                    strength   = MIN(1.0, fact_associations.strength + excluded.strength),
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (a, b, float(delta)),
+            )
+            self._conn.commit()
+            row = self._conn.execute(
+                "SELECT strength FROM fact_associations WHERE fact_a = ? AND fact_b = ?",
+                (a, b),
+            ).fetchone()
+            return row["strength"] if row else 0.0
+
+    def get_associations(
+        self, fact_id: int, limit: int = 10, min_strength: float = 0.0
+    ) -> list[dict]:
+        """Facts associated with ``fact_id``, strongest edge first.
+
+        Each result is a normal fact dict plus a ``strength`` field. Superseded
+        facts are excluded so spreading activation never resurfaces retired
+        claims.
+        """
+        fid = int(fact_id)
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT CASE WHEN fact_a = ? THEN fact_b ELSE fact_a END AS other_id,
+                       strength
+                FROM fact_associations
+                WHERE (fact_a = ? OR fact_b = ?) AND strength >= ?
+                ORDER BY strength DESC, updated_at DESC
+                LIMIT ?
+                """,
+                (fid, fid, fid, float(min_strength), int(limit)),
+            ).fetchall()
+            out: list[dict] = []
+            for r in rows:
+                fact = self._conn.execute(
+                    """
+                    SELECT fact_id, content, category, tags, trust_score,
+                           retrieval_count, helpful_count, created_at, updated_at,
+                           fact_type
+                    FROM facts
+                    WHERE fact_id = ? AND superseded_by IS NULL
+                    """,
+                    (r["other_id"],),
+                ).fetchone()
+                if fact is not None:
+                    d = self._row_to_dict(fact)
+                    d["strength"] = r["strength"]
+                    out.append(d)
+            return out
 
     # ------------------------------------------------------------------
     # Consolidation / typed memory
