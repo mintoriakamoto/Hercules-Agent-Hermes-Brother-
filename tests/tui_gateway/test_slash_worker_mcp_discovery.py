@@ -90,9 +90,14 @@ def test_profile_local_mcp_tool_is_visible_in_slash_worker(tmp_path):
         proc.stdin.write(json.dumps({"id": 1, "command": "/tools"}) + "\n")
         proc.stdin.flush()
         try:
-            line = output.get(timeout=10)
+            # Generous ceiling: the worker boots the whole app and runs MCP
+            # discovery (spawning a probe server) before answering, which is
+            # ~3-4s when healthy but can spike well past 10s under CI load —
+            # the flaky-timeout that reddened an otherwise-passing run. A slow
+            # boot isn't a failure; only a genuinely dead worker is.
+            line = output.get(timeout=60)
         except queue.Empty:
-            pytest.fail("slash worker produced no /tools response within 10 seconds")
+            pytest.fail("slash worker produced no /tools response within 60 seconds")
         response = json.loads(line)
         assert response["ok"] is True
         assert "mcp__profileprobe__hercules_61922_profile_probe" in response["output"]
