@@ -123,6 +123,27 @@ def _clamp_trust(value: float) -> float:
     return max(_TRUST_MIN, min(_TRUST_MAX, value))
 
 
+# SQLite error fragments that mean the file is not a usable database. Broader
+# than hercules_state's malformed-*schema* markers on purpose: memory_store.db
+# is a rebuildable cache, so ANY "this isn't a database" corruption is safe to
+# quarantine-and-rebuild. Deliberately excludes transient errors like
+# "database is locked" (which never contain these fragments).
+_CORRUPT_DB_MARKERS = (
+    "malformed",
+    "not a database",
+    "disk image is malformed",
+    "file is encrypted",
+)
+
+
+def _is_corrupt_db_error(exc: BaseException) -> bool:
+    """True when *exc* signals an unusable/corrupt database file."""
+    if not isinstance(exc, sqlite3.DatabaseError):
+        return False
+    msg = str(exc).lower()
+    return any(marker in msg for marker in _CORRUPT_DB_MARKERS)
+
+
 class MemoryStore:
     """SQLite-backed fact store with entity resolution and trust scoring."""
 
@@ -200,7 +221,31 @@ class MemoryStore:
     # ------------------------------------------------------------------
 
     def _init_db(self) -> None:
-        """Create tables, indexes, and triggers if they do not exist. Enable WAL mode."""
+        """Prepare the shared connection's schema, rebuilding on corruption.
+
+        The store is an augmentation *cache*, not a source of record — so unlike
+        state.db (which attempts in-place schema surgery to preserve user data),
+        a corrupt memory_store.db is quarantined and rebuilt empty. That keeps a
+        single bad file from crashing the whole memory subsystem on every
+        session; the facts simply re-accrue. A single retry is enough — the
+        freshly recreated file opens cleanly — so there is no repair loop.
+        """
+        try:
+            self._apply_schema()
+        except sqlite3.DatabaseError as exc:
+            if not _is_corrupt_db_error(exc):
+                raise
+            logger.error(
+                "holographic memory DB corrupt (%s: %s) — quarantining and "
+                "rebuilding empty",
+                self._key,
+                exc,
+            )
+            self._rebuild_corrupt_db()
+            self._apply_schema()
+
+    def _apply_schema(self) -> None:
+        """Enable WAL, tune pragmas, and create tables/indexes/triggers."""
         # Use the shared WAL-fallback helper so memory_store.db degrades
         # gracefully on NFS/SMB/FUSE-mounted HERCULES_HOME (same issue as
         # state.db / kanban.db — see hercules_state._WAL_INCOMPAT_MARKERS).
@@ -223,6 +268,37 @@ class MemoryStore:
         if "reflected" not in columns:
             self._conn.execute("ALTER TABLE facts ADD COLUMN reflected INTEGER DEFAULT 0")
         self._conn.commit()
+
+    def _rebuild_corrupt_db(self) -> None:
+        """Quarantine the corrupt DB file and rebind a fresh connection.
+
+        Closes the bad shared connection, backs the file up for forensics,
+        removes it and its WAL/SHM sidecars, then opens a clean connection and
+        rebinds it into the shared registry so every sibling MemoryStore for
+        this path picks up the rebuilt file.
+        """
+        try:
+            self._conn.close()
+        except sqlite3.Error:
+            pass
+        path = Path(self._key)
+        try:
+            from hercules_state import _backup_db_file
+            _backup_db_file(path)
+        except Exception as exc:  # best-effort forensic copy
+            logger.debug("memory DB backup before rebuild failed: %s", exc)
+        for suffix in ("", "-wal", "-shm"):
+            target = path.with_name(path.name + suffix) if suffix else path
+            try:
+                target.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.debug("could not remove %s during rebuild: %s", target, exc)
+        conn = sqlite3.connect(
+            self._key, check_same_thread=False, timeout=10.0, isolation_level=None
+        )
+        conn.row_factory = sqlite3.Row
+        self._conn = conn
+        self._entry["conn"] = conn
 
     def _apply_performance_pragmas(self) -> None:
         """Tune the shared connection for this read-heavy fact store.
