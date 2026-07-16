@@ -185,6 +185,110 @@ def test_single_helpful_rating_does_not_shield(env, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Curator: proven-harmful skills are archived sooner (symmetric to the grace)
+# ---------------------------------------------------------------------------
+
+def test_proven_harmful_skill_archives_sooner_than_neutral(env, monkeypatch):
+    """A net-harmful skill (misled more than it helped) leaves context on a
+    shortened window; a neutral skill at the same idle does not yet."""
+    home, skill_usage, curator, _tool = env
+    skills_dir = home / "skills"
+    _write_skill(skills_dir, "harmful")
+    _write_skill(skills_dir, "neutral")
+
+    now = datetime(2026, 4, 30, tzinfo=timezone.utc)
+    # Idle 50 days: past the penalized 45d window (90//2) but shy of 90d.
+    idle = (now - timedelta(days=50)).isoformat()
+    skill_usage.save_usage({
+        "harmful": {
+            "created_by": "agent",
+            "created_at": idle,
+            "last_used_at": idle,
+            "use_count": 5,
+            "helpful_count": 1,
+            "unhelpful_count": 4,   # net −3 → past the prune threshold (−2)
+            "state": "active",
+        },
+        "neutral": {
+            "created_by": "agent",
+            "created_at": idle,
+            "last_used_at": idle,
+            "use_count": 5,
+            "state": "active",
+        },
+    })
+    monkeypatch.setattr(curator, "get_stale_after_days", lambda: 30)
+    monkeypatch.setattr(curator, "get_archive_after_days", lambda: 90)
+
+    counts = curator.apply_automatic_transitions(now=now)
+
+    # Harmful: 50d ≥ 45d penalized window → archived.
+    assert skill_usage.get_record("harmful")["state"] == "archived"
+    # Neutral: 50d < 90d → only demoted to stale, still in context.
+    assert skill_usage.get_record("neutral")["state"] == "stale"
+    assert counts["archived"] == 1
+    assert counts["marked_stale"] == 1
+
+
+def test_harmful_acceleration_never_precedes_staleness(env, monkeypatch):
+    """The penalized window is floored at stale_after_days: a harmful skill is
+    never archived before it would even have been demoted to stale."""
+    home, skill_usage, curator, _tool = env
+    skills_dir = home / "skills"
+    _write_skill(skills_dir, "harmful-young")
+
+    now = datetime(2026, 4, 30, tzinfo=timezone.utc)
+    # Idle 27d. With stale=30, archive=50: raw penalty 50//2=25, but floored to
+    # 30 — so 27d is inside the floor and must NOT archive (nor even go stale).
+    idle = (now - timedelta(days=27)).isoformat()
+    skill_usage.save_usage({
+        "harmful-young": {
+            "created_by": "agent",
+            "created_at": idle,
+            "last_used_at": idle,
+            "use_count": 5,
+            "helpful_count": 0,
+            "unhelpful_count": 3,   # net −3
+            "state": "active",
+        },
+    })
+    monkeypatch.setattr(curator, "get_stale_after_days", lambda: 30)
+    monkeypatch.setattr(curator, "get_archive_after_days", lambda: 50)
+
+    curator.apply_automatic_transitions(now=now)
+    # Not archived (floor protected it) and not stale (27 < 30).
+    assert skill_usage.get_record("harmful-young")["state"] == "active"
+
+
+def test_single_unhelpful_rating_does_not_accelerate(env, monkeypatch):
+    """One stray downvote (net −1, above the −2 prune threshold) leaves the
+    skill on the normal archive schedule — a track record prunes, a fluke won't."""
+    home, skill_usage, curator, _tool = env
+    skills_dir = home / "skills"
+    _write_skill(skills_dir, "barely-downvoted")
+
+    now = datetime(2026, 4, 30, tzinfo=timezone.utc)
+    idle = (now - timedelta(days=50)).isoformat()
+    skill_usage.save_usage({
+        "barely-downvoted": {
+            "created_by": "agent",
+            "created_at": idle,
+            "last_used_at": idle,
+            "use_count": 5,
+            "helpful_count": 0,
+            "unhelpful_count": 1,   # net −1 → not past the −2 threshold
+            "state": "active",
+        },
+    })
+    monkeypatch.setattr(curator, "get_stale_after_days", lambda: 30)
+    monkeypatch.setattr(curator, "get_archive_after_days", lambda: 90)
+
+    curator.apply_automatic_transitions(now=now)
+    # 50d < 90d normal window → not archived, only stale.
+    assert skill_usage.get_record("barely-downvoted")["state"] == "stale"
+
+
+# ---------------------------------------------------------------------------
 # Tool surface: skill_manage(action="feedback")
 # ---------------------------------------------------------------------------
 
