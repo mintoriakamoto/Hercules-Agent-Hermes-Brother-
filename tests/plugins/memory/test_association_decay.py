@@ -55,6 +55,10 @@ def test_decay_factor_defensive():
     # A future timestamp never boosts an edge above its stored value.
     future = (datetime.now(timezone.utc) + timedelta(days=5)).isoformat()
     assert _decay_factor(future) == 1.0
+    # A truthy value that is neither str nor datetime must not raise — the
+    # "bad data never erases an edge" contract holds even for wrong types.
+    assert _decay_factor(1234567890) == 1.0
+    assert _decay_factor(object()) == 1.0
 
 
 # --- decay in retrieval + reinforcement ------------------------------------
@@ -116,3 +120,19 @@ def test_prune_is_noop_when_all_edges_healthy(store):
     b = store.add_fact("Healthy partner")
     store.reinforce_association(a, b, delta=0.6)
     assert store.prune_associations() == 0
+
+
+def test_fully_decayed_edge_is_not_surfaced_even_at_zero_floor(store):
+    a = store.add_fact("Ancient hub fact")
+    b = store.add_fact("Ancient partner fact")
+    store.reinforce_association(a, b, delta=0.8)
+    # Backdate so far the effective strength underflows to exactly 0.0.
+    store._conn.execute(
+        "UPDATE fact_associations SET updated_at = '2000-01-01 00:00:00' "
+        "WHERE fact_a = ? AND fact_b = ?",
+        tuple(sorted((a, b))),
+    )
+    store._conn.commit()
+    # min_strength defaults to 0.0, but a dead (eff == 0.0) edge must NOT return.
+    assert store.get_associations(a) == []
+    assert store.get_associations(a, min_strength=0.0) == []

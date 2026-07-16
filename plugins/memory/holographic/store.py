@@ -140,7 +140,10 @@ def _decay_factor(updated_at: object, half_life_days: float = _ASSOCIATION_HALF_
         if age_days <= 0:
             return 1.0
         return math.pow(0.5, age_days / half_life_days)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, AttributeError):
+        # AttributeError guards a truthy value that is neither str nor datetime
+        # (e.g. an int) reaching the ``.tzinfo`` access — honour the "bad data
+        # never erases an edge" contract instead of propagating.
         return 1.0
 
 # Entity extraction patterns
@@ -249,6 +252,12 @@ class MemoryStore:
             if not self._entry["ready"]:
                 self._init_db()
                 self._entry["ready"] = True
+            # _init_db may have quarantined a corrupt DB and swapped the shared
+            # connection for a fresh one. Re-sync from the registry under the
+            # lock so an instance that captured the pre-rebuild connection above
+            # (or is skipping init on the ready path) never keeps the stale,
+            # now-closed handle.
+            self._conn = self._entry["conn"]
 
     # ------------------------------------------------------------------
     # Initialisation
@@ -709,7 +718,12 @@ class MemoryStore:
         claims.
         """
         fid = int(fact_id)
-        floor = float(min_strength)
+        # Never surface edges whose effective strength has decayed below the
+        # prune floor: the module already treats those as dead (they're deleted
+        # at the next prune), so returning them — even at a caller floor of 0.0
+        # — would contradict the "currently useful" contract. A higher caller
+        # floor still wins.
+        floor = max(float(min_strength), _ASSOCIATION_PRUNE_FLOOR)
         want = int(limit)
         with self._lock:
             rows = self._conn.execute(
