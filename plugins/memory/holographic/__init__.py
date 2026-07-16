@@ -94,9 +94,11 @@ _PREFETCH_SPREAD_MAX = 2
 #   • trust      — the learned reliability score (feedback-trained)
 #   • corroboration — how often the fact has been confirmed helpful (saturating)
 #   • recency    — gentle temporal freshness (a year-old fact is less certain)
-_CONFIDENCE_TRUST_WEIGHT = 0.5
-_CONFIDENCE_CORROBORATION_WEIGHT = 0.3
-_CONFIDENCE_RECENCY_WEIGHT = 0.2
+_CONFIDENCE_TRUST_WEIGHT = 0.55
+_CONFIDENCE_CORROBORATION_WEIGHT = 0.30
+_CONFIDENCE_RECENCY_WEIGHT = 0.15   # smaller, so a fresh but low-trust,
+#                                     uncorroborated fact still reads "low" and
+#                                     the agent hedges it (the whole point).
 _CONFIDENCE_CORROBORATION_SATURATION = 3   # helpful ratings for full corroboration
 _CONFIDENCE_RECENCY_HALF_LIFE_DAYS = 180.0  # matches the retriever's recency default
 
@@ -123,8 +125,14 @@ def _recall_confidence(fact: dict) -> float:
         if _CONFIDENCE_CORROBORATION_SATURATION
         else 0.0
     )
+    # Recency = knowledge age (created_at), NOT last-touch (updated_at): a trust
+    # nudge bumps updated_at, so keying recency off it would let every
+    # co-activation / attribution write reset a fact's confidence recency — and
+    # a fact just penalized as misleading would perversely get its recency term
+    # bumped back to full. created_at is stable; fall back to updated_at only if
+    # it's somehow absent.
     recency = _decay_factor(
-        fact.get("updated_at") or fact.get("created_at"),
+        fact.get("created_at") or fact.get("updated_at"),
         _CONFIDENCE_RECENCY_HALF_LIFE_DAYS,
     )
     conf = (
@@ -162,21 +170,34 @@ _AUTO_ATTRIBUTION_NEGATIVE_DELTA = -0.03
 _AUTO_ATTRIBUTION_MAX_FACTS = 10          # most-recently-recalled facts credited
 _AUTO_ATTRIBUTION_RECALL_CAP = 500        # bound per-session recall tracking
 
-# A clear parting acknowledgement → the recalled facts helped.
+# A clear parting acknowledgement → the recalled facts helped. Matched as whole
+# phrases (word boundaries) against the FINAL user turn only, so "not perfect"
+# or "imperfect" can't trip "perfect".
 _POSITIVE_OUTCOME_MARKERS = (
     "thank you", "thanks", "perfect", "exactly right", "that's right",
     "that is right", "that worked", "that's correct", "that is correct",
-    "spot on", "nailed it", "works now", "fixed it", "well done", "great, that",
-    "that's exactly", "that did it", "you're right", "you are right",
+    "spot on", "nailed it", "works now", "that did it", "you're right",
+    "you are right", "that's exactly right", "that's perfect",
 )
-# A clear correction/negation → the recalled facts misled.
+# A clear correction/negation → the recalled facts misled. Deliberately narrow:
+# only unambiguous whole phrases, so a benign "actually it's working now" or
+# "the incorrectly-named var is fixed" can't misfire as negative.
 _NEGATIVE_OUTCOME_MARKERS = (
     "that's wrong", "that is wrong", "you're wrong", "you are wrong",
-    "incorrect", "not correct", "that's not right", "that is not right",
+    "that's incorrect", "that is incorrect", "that's not right",
+    "that is not right", "that's not correct", "that is not correct",
     "wrong answer", "doesn't work", "does not work", "didn't work",
-    "did not work", "that's not what", "not what i asked", "actually it's",
-    "actually it is", "no, that", "that's not it",
+    "did not work", "not what i asked", "that's not it",
 )
+
+_OUTCOME_NORMALIZE_RE = re.compile(r"[^a-z0-9']+")
+
+
+def _normalize_outcome_text(text: str) -> str:
+    """Lowercase, reduce punctuation to spaces, and pad — so marker phrases can
+    be matched at word boundaries (a marker matches iff it appears space-
+    delimited), keeping apostrophes so "that's wrong" matches intact."""
+    return " " + _OUTCOME_NORMALIZE_RE.sub(" ", text.lower()).strip() + " "
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +347,7 @@ class HolographicMemoryProvider(MemoryProvider):
         return [
             {"key": "db_path", "description": "SQLite database path", "default": _default_db},
             {"key": "auto_extract", "description": "Auto-extract facts at session end", "default": "false", "choices": ["true", "false"]},
+            {"key": "auto_attribution", "description": "At session end, nudge the trust of recalled facts by the inferred session outcome (learns from use, not just explicit ratings)", "default": "true", "choices": ["true", "false"]},
             {"key": "default_trust", "description": "Default trust score for new facts", "default": "0.5"},
             {"key": "hrr_dim", "description": "HRR vector dimensions", "default": "1024"},
         ]
@@ -500,23 +522,27 @@ class HolographicMemoryProvider(MemoryProvider):
         """Infer a coarse session outcome from the user's own words.
 
         Returns 'positive', 'negative', or None (ambiguous → no attribution).
-        A correction is the stronger signal, so negatives are scanned across the
-        last few user turns; positives require a parting acknowledgement in the
-        final user turn. Only clear signals fire — anything else changes nothing.
+        Only the FINAL user turn is judged (that's where a session's verdict
+        lands), and markers are matched as whole phrases at word boundaries.
+        Negatives are checked first (a correction is the stronger signal). Only
+        clear signals fire — anything else changes nothing, so a mid-session
+        correction followed by a pivot doesn't mis-credit the pivot's facts.
         """
-        user_texts = [
-            m.get("content", "").lower()
-            for m in (messages or [])
-            if isinstance(m, dict)
-            and m.get("role") == "user"
-            and isinstance(m.get("content"), str)
-        ]
-        if not user_texts:
+        last_user = None
+        for m in reversed(messages or []):
+            if (
+                isinstance(m, dict)
+                and m.get("role") == "user"
+                and isinstance(m.get("content"), str)
+            ):
+                last_user = m["content"]
+                break
+        if not last_user:
             return None
-        tail = " \n ".join(user_texts[-3:])
-        if any(marker in tail for marker in _NEGATIVE_OUTCOME_MARKERS):
+        text = _normalize_outcome_text(last_user)
+        if any(f" {marker} " in text for marker in _NEGATIVE_OUTCOME_MARKERS):
             return "negative"
-        if any(marker in user_texts[-1] for marker in _POSITIVE_OUTCOME_MARKERS):
+        if any(f" {marker} " in text for marker in _POSITIVE_OUTCOME_MARKERS):
             return "positive"
         return None
 
@@ -540,8 +566,10 @@ class HolographicMemoryProvider(MemoryProvider):
             if outcome == "positive"
             else _AUTO_ATTRIBUTION_NEGATIVE_DELTA
         )
-        # Most-recently-recalled first, deduped, capped.
-        targets = list(dict.fromkeys(reversed(recalled)))[:_AUTO_ATTRIBUTION_MAX_FACTS]
+        # Snapshot first — a concurrent tool call could append to the live deque
+        # while we iterate. Then most-recently-recalled first, deduped, capped.
+        snapshot = list(recalled)
+        targets = list(dict.fromkeys(reversed(snapshot)))[:_AUTO_ATTRIBUTION_MAX_FACTS]
         adjusted = 0
         for fid in targets:
             try:
