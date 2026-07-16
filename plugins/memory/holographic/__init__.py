@@ -409,9 +409,12 @@ class HolographicMemoryProvider(MemoryProvider):
             embedder=embedder,
         )
         self._session_id = session_id
-        # Fresh recall history per session so outcome attribution never credits
-        # a new session's outcome to facts recalled in a previous one.
+        # Fresh per-session recall state so neither outcome attribution nor
+        # co-activation reinforcement bleeds a previous session's recalls into a
+        # new one (e.g. forging a Hebbian edge between facts only ever recalled
+        # in a different, already-closed session).
         self._session_recalled = deque(maxlen=_AUTO_ATTRIBUTION_RECALL_CAP)
+        self._last_recall = deque(maxlen=_CO_ACTIVATION_MEMORY)
 
     def system_prompt_block(self) -> str:
         if not self._store:
@@ -621,15 +624,20 @@ class HolographicMemoryProvider(MemoryProvider):
         except Exception as exc:
             logger.debug("outcome attribution skipped: %s", exc)
         finally:
-            # Reset the recall history for the NEXT session. Session rotation
-            # (/new) delivers on_session_end → on_session_switch, NOT a fresh
-            # initialize(), so without this the recalled set would accumulate
-            # across sessions and re-credit earlier facts on every subsequent
-            # session end. Clearing here consumes this session's recalls exactly
-            # once, whichever way the next session starts.
-            recalled = getattr(self, "_session_recalled", None)
-            if recalled is not None:
-                recalled.clear()
+            # Reset per-session recall state for the NEXT session. Session
+            # rotation (/new) delivers on_session_end → on_session_switch, NOT a
+            # fresh initialize(), so without this both the attribution recall set
+            # AND the co-activation episode buffer would accumulate across
+            # sessions — re-crediting earlier facts, and letting a later helpful
+            # rating forge Hebbian edges between facts recalled in a different,
+            # already-closed session. Clear both so each session's recalls are
+            # consumed exactly once, whichever way the next session starts.
+            for _buf in (
+                getattr(self, "_session_recalled", None),
+                getattr(self, "_last_recall", None),
+            ):
+                if _buf is not None:
+                    _buf.clear()
         # Hygiene: prune Hebbian association edges whose time-decayed strength
         # has fallen below the floor, so the graph stays bounded and reflects
         # associations that are still paying off. Best-effort, once per session.
