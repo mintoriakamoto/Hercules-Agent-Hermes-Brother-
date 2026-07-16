@@ -71,6 +71,7 @@ logger = logging.getLogger(__name__)
 _CO_ACTIVATION_DELTA = 0.02       # sub-helpful nudge (direct helpful is 0.05)
 _CO_ACTIVATION_MEMORY = 12        # recall episodes retained for reinforcement
 _CO_ACTIVATION_MAX_FANOUT = 12    # cap co-boosted facts per feedback event
+_ASSOCIATION_DELTA = 0.15         # durable Hebbian edge strengthened per event
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +94,10 @@ FACT_STORE_SCHEMA = {
         "• related — What connects to an entity? Structural adjacency.\n"
         "• graph — Multi-hop associative recall: facts about an entity AND "
         "everything connected to it (set hops, default 2).\n"
+        "• spread — Spreading activation: facts that have proven useful "
+        "TOGETHER with a seed (fact_id, or query/entity resolved to its best "
+        "match), ranked by learned association strength. Recalls the cluster, "
+        "not just the keyword match.\n"
         "• reason — Compositional: facts connected to MULTIPLE entities.\n"
         "• reflect — Synthesize durable insights from recent facts now.\n"
         "• why — Show the evidence facts an insight was derived from (fact_id).\n"
@@ -106,7 +111,7 @@ FACT_STORE_SCHEMA = {
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["add", "search", "probe", "related", "reason", "contradict", "update", "remove", "list", "reflect", "why", "graph"],
+                "enum": ["add", "search", "probe", "related", "reason", "contradict", "update", "remove", "list", "reflect", "why", "graph", "spread"],
             },
             "content": {"type": "string", "description": "Fact content (required for 'add')."},
             "query": {"type": "string", "description": "Search query (required for 'search'); also a seed for 'graph'."},
@@ -121,6 +126,7 @@ FACT_STORE_SCHEMA = {
             "tags": {"type": "string", "description": "Comma-separated tags."},
             "trust_delta": {"type": "number", "description": "Trust adjustment for 'update'."},
             "min_trust": {"type": "number", "description": "Minimum trust filter (default: 0.3)."},
+            "min_strength": {"type": "number", "description": "For 'spread': minimum learned association strength (default: 0.0)."},
             "limit": {"type": "integer", "description": "Max results (default: 10)."},
         },
         "required": ["action"],
@@ -561,6 +567,34 @@ class HolographicMemoryProvider(MemoryProvider):
                 self._note_co_activation(results)
                 return json.dumps({"facts": results, "count": len(results)})
 
+            elif action == "spread":
+                # Spreading activation over durable Hebbian edges: surface the
+                # facts that have proven useful *together* with a seed fact,
+                # ranked by learned association strength. The seed can be an
+                # explicit fact_id, or a query/entity we resolve to its best
+                # match first (so the caller need not know fact ids).
+                seed_id = args.get("fact_id")
+                if seed_id is None:
+                    probe_text = args.get("query") or args.get("entity") or ""
+                    if not probe_text:
+                        return tool_error("spread requires 'fact_id', 'query', or 'entity'")
+                    hits = retriever.search(
+                        probe_text,
+                        min_trust=float(args.get("min_trust", self._min_trust)),
+                        limit=1,
+                    )
+                    if not hits:
+                        return json.dumps({"seed": None, "facts": [], "count": 0})
+                    seed_id = hits[0]["fact_id"]
+                results = store.get_associations(
+                    int(seed_id),
+                    limit=int(args.get("limit", 10)),
+                    min_strength=float(args.get("min_strength", 0.0)),
+                )
+                return json.dumps(
+                    {"seed": int(seed_id), "facts": results, "count": len(results)}
+                )
+
             else:
                 return tool_error(f"Unknown action: {action}")
 
@@ -637,6 +671,10 @@ class HolographicMemoryProvider(MemoryProvider):
             try:
                 if store.update_fact(fid, trust_delta=_CO_ACTIVATION_DELTA):
                     boosted.append(fid)
+                    # Also lay down a durable association edge so the learned
+                    # cluster survives the session and can be recalled via
+                    # spreading activation, not just via a warmer trust score.
+                    store.reinforce_association(fact_id, fid, delta=_ASSOCIATION_DELTA)
             except Exception as exc:
                 logger.debug("co-activation reinforce skipped for %s: %s", fid, exc)
         return boosted
