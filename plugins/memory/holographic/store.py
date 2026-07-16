@@ -3,10 +3,13 @@ SQLite-backed fact store with entity resolution and trust scoring.
 Single-user Hercules memory store plugin.
 """
 
+import logging
 import re
 import sqlite3
 import threading
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 try:
     from . import holographic as hrr
@@ -203,6 +206,7 @@ class MemoryStore:
         # state.db / kanban.db — see hercules_state._WAL_INCOMPAT_MARKERS).
         from hercules_state import apply_wal_with_fallback
         apply_wal_with_fallback(self._conn, db_label="memory_store.db (holographic)")
+        self._apply_performance_pragmas()
         self._conn.executescript(_SCHEMA)
         # Migrate: add newer columns if missing (safe for existing databases).
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(facts)").fetchall()}
@@ -219,6 +223,42 @@ class MemoryStore:
         if "reflected" not in columns:
             self._conn.execute("ALTER TABLE facts ADD COLUMN reflected INTEGER DEFAULT 0")
         self._conn.commit()
+
+    def _apply_performance_pragmas(self) -> None:
+        """Tune the shared connection for this read-heavy fact store.
+
+        Applied once per shared connection, right after the journal mode is
+        settled. Every statement is best-effort — an old SQLite build or a
+        restrictive filesystem that rejects one pragma must never stop the
+        store from opening.
+
+        * ``synchronous=NORMAL`` — only under WAL, where it is the documented
+          safe/fast setting: fsync at checkpoints instead of every commit. It
+          can lose the last transaction on an OS-level crash but never corrupts
+          the file, an easy trade for a memory cache. Left at the default
+          (FULL) under the DELETE fallback used on fragile network filesystems.
+        * ``temp_store=MEMORY`` — sorts and temp b-trees (the ORDER BYs across
+          retrieval) stay in RAM instead of spilling to disk.
+        * ``cache_size=-8000`` — ~8 MiB page cache (negative = KiB), so the hot
+          fact/entity pages and indexes stay resident across queries.
+        * ``mmap_size`` — memory-mapped reads avoid a read() syscall per page;
+          modest 128 MiB cap, and harmless where mmap is unavailable.
+        """
+        try:
+            row = self._conn.execute("PRAGMA journal_mode").fetchone()
+            mode = (row[0] if row else "").lower()
+        except sqlite3.Error:
+            mode = ""
+        pragmas = ["PRAGMA temp_store=MEMORY", "PRAGMA cache_size=-8000"]
+        if mode == "wal":
+            # NORMAL is only safe/beneficial under WAL; keep FULL otherwise.
+            pragmas.insert(0, "PRAGMA synchronous=NORMAL")
+        pragmas.append("PRAGMA mmap_size=134217728")  # 128 MiB
+        for stmt in pragmas:
+            try:
+                self._conn.execute(stmt)
+            except sqlite3.Error as exc:
+                logger.debug("performance pragma skipped (%s): %s", stmt, exc)
 
     # ------------------------------------------------------------------
     # Public API
