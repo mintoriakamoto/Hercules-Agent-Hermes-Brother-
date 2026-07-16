@@ -44,6 +44,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections import deque
 from typing import Any, Dict, List
 
 from agent.memory_provider import MemoryProvider
@@ -53,6 +54,23 @@ from .retrieval import FactRetriever
 from hercules_cli.config import cfg_get
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Hebbian co-activation reinforcement
+# ---------------------------------------------------------------------------
+# Facts retrieved together in one recall are "co-activated". If the agent then
+# rates one of them helpful, the *association* is what proved useful — so the
+# facts recalled alongside it get a small, sub-helpful trust nudge. Over time
+# clusters of mutually-useful facts self-strengthen, so a query that lands on
+# one of them surfaces the whole cluster. This is memory learning which
+# associations pay off from outcomes, not just which individual facts do.
+#
+# Fully in-memory and session-scoped: no schema change, no persistence, and it
+# rides on the existing trust column via store.update_fact(trust_delta=...).
+_CO_ACTIVATION_DELTA = 0.02       # sub-helpful nudge (direct helpful is 0.05)
+_CO_ACTIVATION_MEMORY = 12        # recall episodes retained for reinforcement
+_CO_ACTIVATION_MAX_FANOUT = 12    # cap co-boosted facts per feedback event
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +174,9 @@ class HolographicMemoryProvider(MemoryProvider):
         self._store = None
         self._retriever = None
         self._min_trust = float(self._config.get("min_trust_threshold", 0.3))
+        # Recent recall episodes (each a frozenset of co-activated fact_ids),
+        # for Hebbian co-activation reinforcement on positive feedback.
+        self._last_recall: deque = deque(maxlen=_CO_ACTIVATION_MEMORY)
 
     @property
     def name(self) -> str:
@@ -457,6 +478,7 @@ class HolographicMemoryProvider(MemoryProvider):
                     min_trust=float(args.get("min_trust", self._min_trust)),
                     limit=int(args.get("limit", 10)),
                 )
+                self._note_co_activation(results)
                 return json.dumps({"results": results, "count": len(results)})
 
             elif action == "probe":
@@ -465,6 +487,7 @@ class HolographicMemoryProvider(MemoryProvider):
                     category=args.get("category"),
                     limit=int(args.get("limit", 10)),
                 )
+                self._note_co_activation(results)
                 return json.dumps({"results": results, "count": len(results)})
 
             elif action == "related":
@@ -473,6 +496,7 @@ class HolographicMemoryProvider(MemoryProvider):
                     category=args.get("category"),
                     limit=int(args.get("limit", 10)),
                 )
+                self._note_co_activation(results)
                 return json.dumps({"results": results, "count": len(results)})
 
             elif action == "reason":
@@ -484,6 +508,7 @@ class HolographicMemoryProvider(MemoryProvider):
                     category=args.get("category"),
                     limit=int(args.get("limit", 10)),
                 )
+                self._note_co_activation(results)
                 return json.dumps({"results": results, "count": len(results)})
 
             elif action == "contradict":
@@ -533,6 +558,7 @@ class HolographicMemoryProvider(MemoryProvider):
                     hops=int(args.get("hops", 2)),
                     limit=int(args.get("limit", 20)),
                 )
+                self._note_co_activation(results)
                 return json.dumps({"facts": results, "count": len(results)})
 
             else:
@@ -548,11 +574,72 @@ class HolographicMemoryProvider(MemoryProvider):
             fact_id = int(args["fact_id"])
             helpful = args["action"] == "helpful"
             result = self._store.record_feedback(fact_id, helpful=helpful)
+            # Hebbian reinforcement: a helpful rating means the association that
+            # surfaced this fact paid off, so nudge the facts co-recalled with
+            # it. Only on positive feedback — we never propagate a penalty.
+            if helpful:
+                co_activated = self._reinforce_co_activated(fact_id)
+                if co_activated:
+                    result = {
+                        **result,
+                        "co_activated": co_activated,
+                        "co_activation_delta": _CO_ACTIVATION_DELTA,
+                    }
             return json.dumps(result)
         except KeyError as exc:
             return tool_error(f"Missing required argument: {exc}")
         except Exception as exc:
             return tool_error(str(exc))
+
+    # -- Hebbian co-activation reinforcement ---------------------------------
+
+    def _note_co_activation(self, results: list) -> None:
+        """Record a recall episode of co-activated fact_ids.
+
+        Facts returned together form an association worth reinforcing later if
+        the recall proves helpful. Needs at least two distinct facts to be an
+        association. Best-effort — never lets bookkeeping break a recall.
+        """
+        episodes = getattr(self, "_last_recall", None)
+        if episodes is None:
+            return
+        try:
+            ids: list[int] = []
+            seen: set[int] = set()
+            for r in results or []:
+                fid = r.get("fact_id") if isinstance(r, dict) else None
+                if isinstance(fid, int) and fid not in seen:
+                    seen.add(fid)
+                    ids.append(fid)
+            if len(ids) >= 2:
+                episodes.append(frozenset(ids))
+        except Exception as exc:
+            logger.debug("co-activation capture skipped: %s", exc)
+
+    def _reinforce_co_activated(self, fact_id: int) -> list:
+        """Nudge the trust of facts co-recalled with a helpfully-rated fact.
+
+        Returns the fact_ids that were reinforced (bounded, deterministic).
+        """
+        episodes = getattr(self, "_last_recall", None)
+        store = self._store
+        if not episodes or store is None:
+            return []
+        partners: set[int] = set()
+        for episode in episodes:
+            if fact_id in episode:
+                partners |= episode
+        partners.discard(fact_id)
+        if not partners:
+            return []
+        boosted: list[int] = []
+        for fid in sorted(partners)[:_CO_ACTIVATION_MAX_FANOUT]:
+            try:
+                if store.update_fact(fid, trust_delta=_CO_ACTIVATION_DELTA):
+                    boosted.append(fid)
+            except Exception as exc:
+                logger.debug("co-activation reinforce skipped for %s: %s", fid, exc)
+        return boosted
 
     # -- Auto-extraction (on_session_end) ------------------------------------
 
