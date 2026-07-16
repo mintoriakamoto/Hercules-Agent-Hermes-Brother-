@@ -898,10 +898,7 @@ def _perform_uninstall(
         print(f"  {hercules_home}/")
         print()
         print("To reinstall later with your existing settings:")
-        if _is_windows():
-            print(color("  iex (irm https://hercules-agent.nousresearch.com/install.ps1)", Colors.DIM))
-        else:
-            print(color("  curl -fsSL https://hercules-agent.nousresearch.com/install.sh | bash", Colors.DIM))
+        print(color("  git clone https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git", Colors.DIM))
         print()
 
     if _is_windows():

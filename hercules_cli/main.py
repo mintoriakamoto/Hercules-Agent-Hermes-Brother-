@@ -5998,7 +5998,7 @@ def _print_curator_first_run_notice() -> None:
     print("  Preview now:  hercules curator run --dry-run")
     print("  Pause it:     hercules curator pause")
     print(
-        "  Docs:         https://hercules-agent.nousresearch.com/docs/user-guide/features/curator"
+        "  Docs:         https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/blob/main/website/docs/user-guide/features/curator.md"
     )
 
 
@@ -9526,7 +9526,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 return
             print("✗ Not a git repository. Please reinstall:")
             print(
-                "  curl -fsSL https://hercules-agent.nousresearch.com/install.sh | bash"
+                "  git clone https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git"
             )
             sys.exit(1)
 
@@ -12865,7 +12865,7 @@ def main():
             "Manage the fallback provider chain.  Fallback providers are tried "
             "in order when the primary model fails with rate-limit, overload, or "
             "connection errors.  See: "
-            "https://hercules-agent.nousresearch.com/docs/user-guide/features/fallback-providers"
+            "https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/blob/main/website/docs/user-guide/features/fallback-providers.md"
         ),
     )
     fallback_subparsers = fallback_parser.add_subparsers(dest="fallback_command")
@@ -12899,7 +12899,7 @@ def main():
             "Pull API keys from an external secret manager at process startup "
             "instead of storing them in ~/.hercules/.env.  Supports Bitwarden "
             "Secrets Manager and 1Password.  See: "
-            "https://hercules-agent.nousresearch.com/docs/user-guide/secrets/"
+            "https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/tree/main/website/docs/user-guide/secrets"
         ),
     )
     secrets_subparsers = secrets_parser.add_subparsers(dest="secrets_command")

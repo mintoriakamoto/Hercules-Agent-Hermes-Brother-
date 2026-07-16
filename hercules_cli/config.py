@@ -571,7 +571,7 @@ def recommended_update_command() -> str:
 # banner, the TUI/desktop session info panel, and ``hercules update``. NixOS
 # stays fully supported (Tier 2) and must never hit this path.
 
-PLATFORM_SUPPORT_DOCS_URL = "https://hercules-agent.nousresearch.com/docs/getting-started/platform-support"
+PLATFORM_SUPPORT_DOCS_URL = "https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/blob/main/website/docs/getting-started/platform-support.md"
 
 _UNSUPPORTED_INSTALL_METHODS = frozenset({"pip", "homebrew"})
 
