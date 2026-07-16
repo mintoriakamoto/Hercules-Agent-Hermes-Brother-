@@ -176,7 +176,10 @@ def test_spread_by_query_resolves_seed_then_spreads(provider):
 def test_spread_with_no_learned_edges_is_empty_not_error(provider):
     a = _add(provider, "An isolated fact with no associations yet")
     out = _spread(provider, fact_id=a)
-    assert out == {"seed": a, "facts": [], "count": 0}
+    assert out["seed"] == a
+    assert out["facts"] == []
+    assert out["count"] == 0
+    assert out["recall_confidence"] == 0.0
 
 
 def test_spread_requires_a_seed(provider):
