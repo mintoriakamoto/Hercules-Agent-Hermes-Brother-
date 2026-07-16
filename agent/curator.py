@@ -311,6 +311,18 @@ _EFFECTIVENESS_ARCHIVE_KEEP_THRESHOLD = 2
 # STATE_STALE on schedule; only the harder removal-from-context step is deferred.
 _EFFECTIVENESS_ARCHIVE_GRACE_MULTIPLIER = 3
 
+# The symmetric case: a skill with clear NET-NEGATIVE feedback (helpful −
+# unhelpful ≤ this) has misled more than it helped — the "no-op / harmful skill"
+# anti-pattern. It earns a SHORTER idle grace so it stops loading into context
+# sooner, once it has also gone quiet. The threshold mirrors the keep threshold
+# so a single stray downvote can't prune a skill; a clear track record can.
+_EFFECTIVENESS_ARCHIVE_PRUNE_THRESHOLD = -2
+# The harmful skill's archive window is divided by this (vs multiplied for the
+# helpful case). Floored at stale_after_days below, so acceleration never
+# archives a skill before it would even have been demoted to STATE_STALE —
+# archival still strictly follows staleness, it just arrives sooner.
+_EFFECTIVENESS_ARCHIVE_PENALTY_DIVISOR = 2
+
 
 def apply_automatic_transitions(now: Optional[datetime] = None) -> Dict[str, int]:
     """Walk every curator-managed skill and move active/stale/archived based on
@@ -384,15 +396,28 @@ def apply_automatic_transitions(now: Optional[datetime] = None) -> Dict[str, int
                 counts["reactivated"] += 1
             continue
 
-        # Proven-helpful skills earn a longer archive grace: a skill that has
-        # demonstrably helped (net-positive feedback) shouldn't be dropped from
-        # context just for going quiet. Only the archive step is deferred — the
-        # staleness demotion below still fires on the normal schedule.
+        # Effectiveness modulates the archive step in both directions. A skill
+        # with proven net-positive feedback earns a longer idle grace (it
+        # shouldn't be dropped from context just for going quiet); a skill with
+        # proven net-negative feedback — misled more than it helped — earns a
+        # shorter grace so it stops loading sooner. Staleness demotion below
+        # still fires on the normal schedule either way; only the harder
+        # removal-from-context step is retimed.
         effective_archive_cutoff = archive_cutoff
-        if _u.net_effectiveness(row) >= _EFFECTIVENESS_ARCHIVE_KEEP_THRESHOLD:
+        net = _u.net_effectiveness(row)
+        if net >= _EFFECTIVENESS_ARCHIVE_KEEP_THRESHOLD:
             effective_archive_cutoff = now - timedelta(
                 days=get_archive_after_days() * _EFFECTIVENESS_ARCHIVE_GRACE_MULTIPLIER
             )
+        elif net <= _EFFECTIVENESS_ARCHIVE_PRUNE_THRESHOLD:
+            # Shorten the window, but never below stale_after_days — archival
+            # always follows staleness, it just arrives sooner for a skill that
+            # has demonstrably hurt more than helped.
+            penalized_days = max(
+                get_stale_after_days(),
+                get_archive_after_days() // _EFFECTIVENESS_ARCHIVE_PENALTY_DIVISOR,
+            )
+            effective_archive_cutoff = now - timedelta(days=penalized_days)
 
         if anchor <= effective_archive_cutoff and current != _u.STATE_ARCHIVED:
             ok, _msg = _u.archive_skill(name)
