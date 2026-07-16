@@ -1,0 +1,88 @@
+# Builds the Hercules Desktop app installers and publishes them.
+#
+# The desktop app (apps/desktop, Electron + electron-builder) can already target
+# Linux (AppImage/deb/rpm), macOS (dmg/zip) and Windows (nsis/msi) — the regular
+# CI "Build desktop app" job only bundles the JS, it never produces installers.
+# This workflow closes that gap so there is an actual downloadable desktop
+# option, including an Ubuntu build.
+#
+# It runs ONLY on demand (workflow_dispatch) or when a release tag is pushed, so
+# it never turns everyday PR/push CI red. On a tag it attaches the installers to
+# that GitHub Release; always uploads them as workflow artifacts too.
+name: Desktop Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref (tag/branch/sha) to build. Defaults to the triggering ref."
+        required: false
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # attach installers to the GitHub Release on a tag
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build desktop (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Ubuntu / Linux — AppImage + deb + rpm.
+          - name: linux
+            os: ubuntu-latest
+            dist: "dist:linux"
+            artifacts: |
+              apps/desktop/release/*.AppImage
+              apps/desktop/release/*.deb
+              apps/desktop/release/*.rpm
+          # macOS and Windows can be added here once their signing story is
+          # settled (electron-builder can also produce unsigned dmg/nsis):
+          #   - { name: mac,     os: macos-latest,   dist: "dist:mac", artifacts: "apps/desktop/release/*.dmg" }
+          #   - { name: windows, os: windows-latest, dist: "dist:win", artifacts: "apps/desktop/release/*.exe" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      # Native deps (node-pty) are needed for the production build; retry
+      # absorbs transient install-time fetch flakes (same pattern as CI).
+      - uses: ./.github/actions/retry
+        with:
+          command: npm ci
+      - name: Build installers (${{ matrix.dist }})
+        run: npm run --prefix apps/desktop ${{ matrix.dist }}
+        env:
+          # Unsigned builds: don't let electron-builder hunt for signing certs.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Upload installers as workflow artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: hercules-desktop-${{ matrix.name }}
+          path: ${{ matrix.artifacts }}
+          if-no-files-found: error
+      - name: Attach installers to the release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(apps/desktop/release/*.AppImage apps/desktop/release/*.deb apps/desktop/release/*.rpm)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No installers found to attach." >&2
+            exit 1
+          fi
+          gh release upload "${GITHUB_REF_NAME}" "${files[@]}" --clobber
