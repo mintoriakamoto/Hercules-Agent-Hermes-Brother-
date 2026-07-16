@@ -144,6 +144,42 @@ def _confidence_label(conf: float) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Automatic outcome attribution (self-driving learning)
+# ---------------------------------------------------------------------------
+# The learning loop otherwise only turns when the agent MANUALLY rates a fact
+# (fact_feedback). That signal is sparse. Here we derive it from what actually
+# happened: at session end, infer a coarse outcome from the user's own words
+# and nudge the trust of the facts this session recalled — so a session that
+# ended well quietly reinforces the memory it leaned on, and a corrected one
+# discounts it. No rating required; every session becomes training signal.
+#
+# Deliberately conservative: inferred deltas are SMALLER than a manual rating,
+# they adjust trust only (never the helpful_count that powers corroboration, so
+# "confirmed helpful" stays a human judgement), the fan-out is capped, and
+# ambiguous sessions (no clear signal) change nothing.
+_AUTO_ATTRIBUTION_POSITIVE_DELTA = 0.02
+_AUTO_ATTRIBUTION_NEGATIVE_DELTA = -0.03
+_AUTO_ATTRIBUTION_MAX_FACTS = 10          # most-recently-recalled facts credited
+_AUTO_ATTRIBUTION_RECALL_CAP = 500        # bound per-session recall tracking
+
+# A clear parting acknowledgement → the recalled facts helped.
+_POSITIVE_OUTCOME_MARKERS = (
+    "thank you", "thanks", "perfect", "exactly right", "that's right",
+    "that is right", "that worked", "that's correct", "that is correct",
+    "spot on", "nailed it", "works now", "fixed it", "well done", "great, that",
+    "that's exactly", "that did it", "you're right", "you are right",
+)
+# A clear correction/negation → the recalled facts misled.
+_NEGATIVE_OUTCOME_MARKERS = (
+    "that's wrong", "that is wrong", "you're wrong", "you are wrong",
+    "incorrect", "not correct", "that's not right", "that is not right",
+    "wrong answer", "doesn't work", "does not work", "didn't work",
+    "did not work", "that's not what", "not what i asked", "actually it's",
+    "actually it is", "no, that", "that's not it",
+)
+
+
+# ---------------------------------------------------------------------------
 # Tool schemas (unchanged from original PR)
 # ---------------------------------------------------------------------------
 
@@ -256,6 +292,9 @@ class HolographicMemoryProvider(MemoryProvider):
         # Recent recall episodes (each a frozenset of co-activated fact_ids),
         # for Hebbian co-activation reinforcement on positive feedback.
         self._last_recall: deque = deque(maxlen=_CO_ACTIVATION_MEMORY)
+        # Every fact recalled this session (most-recent-last), for automatic
+        # outcome attribution at session end. Reset per session in initialize().
+        self._session_recalled: deque = deque(maxlen=_AUTO_ATTRIBUTION_RECALL_CAP)
 
     @property
     def name(self) -> str:
@@ -348,6 +387,9 @@ class HolographicMemoryProvider(MemoryProvider):
             embedder=embedder,
         )
         self._session_id = session_id
+        # Fresh recall history per session so outcome attribution never credits
+        # a new session's outcome to facts recalled in a previous one.
+        self._session_recalled = deque(maxlen=_AUTO_ATTRIBUTION_RECALL_CAP)
 
     def system_prompt_block(self) -> str:
         if not self._store:
@@ -451,6 +493,68 @@ class HolographicMemoryProvider(MemoryProvider):
             logger.debug("prefetch spreading activation skipped: %s", exc)
             return []
 
+    # -- Automatic outcome attribution ---------------------------------------
+
+    @staticmethod
+    def _classify_session_outcome(messages: list) -> "str | None":
+        """Infer a coarse session outcome from the user's own words.
+
+        Returns 'positive', 'negative', or None (ambiguous → no attribution).
+        A correction is the stronger signal, so negatives are scanned across the
+        last few user turns; positives require a parting acknowledgement in the
+        final user turn. Only clear signals fire — anything else changes nothing.
+        """
+        user_texts = [
+            m.get("content", "").lower()
+            for m in (messages or [])
+            if isinstance(m, dict)
+            and m.get("role") == "user"
+            and isinstance(m.get("content"), str)
+        ]
+        if not user_texts:
+            return None
+        tail = " \n ".join(user_texts[-3:])
+        if any(marker in tail for marker in _NEGATIVE_OUTCOME_MARKERS):
+            return "negative"
+        if any(marker in user_texts[-1] for marker in _POSITIVE_OUTCOME_MARKERS):
+            return "positive"
+        return None
+
+    def _attribute_outcome(self, messages: list) -> None:
+        """Nudge the trust of this session's recalled facts by its outcome.
+
+        Trust-only (never helpful_count), small inferred deltas, capped to the
+        most-recently-recalled facts, and a no-op on ambiguous sessions or when
+        disabled via config ``auto_attribution: false``. Best-effort.
+        """
+        if not self._store or not self._config.get("auto_attribution", True):
+            return
+        recalled = getattr(self, "_session_recalled", None)
+        if not recalled:
+            return
+        outcome = self._classify_session_outcome(messages)
+        if outcome is None:
+            return
+        delta = (
+            _AUTO_ATTRIBUTION_POSITIVE_DELTA
+            if outcome == "positive"
+            else _AUTO_ATTRIBUTION_NEGATIVE_DELTA
+        )
+        # Most-recently-recalled first, deduped, capped.
+        targets = list(dict.fromkeys(reversed(recalled)))[:_AUTO_ATTRIBUTION_MAX_FACTS]
+        adjusted = 0
+        for fid in targets:
+            try:
+                if self._store.update_fact(int(fid), trust_delta=delta):
+                    adjusted += 1
+            except Exception as exc:
+                logger.debug("auto-attribution skipped for %s: %s", fid, exc)
+        if adjusted:
+            logger.info(
+                "auto-attribution: %s outcome nudged %d recalled fact(s) by %+.3f",
+                outcome, adjusted, delta,
+            )
+
     def sync_turn(self, user_content: str, assistant_content: str, *, session_id: str = "") -> None:
         # Holographic memory stores explicit facts via tools, not auto-sync.
         # The on_session_end hook handles auto-extraction if configured.
@@ -481,6 +585,13 @@ class HolographicMemoryProvider(MemoryProvider):
                 self.reflect()
             except Exception as exc:
                 logger.debug("Reflection failed: %s", exc)
+        # Self-driving learning: infer the session outcome from the user's words
+        # and nudge the trust of the facts it recalled — so the memory learns
+        # from what happened, not only from explicit fact_feedback ratings.
+        try:
+            self._attribute_outcome(messages)
+        except Exception as exc:
+            logger.debug("outcome attribution skipped: %s", exc)
         # Hygiene: prune Hebbian association edges whose time-decayed strength
         # has fallen below the floor, so the graph stays bounded and reflects
         # associations that are still paying off. Best-effort, once per session.
@@ -772,6 +883,7 @@ class HolographicMemoryProvider(MemoryProvider):
         Best-effort: a malformed result never breaks the recall.
         """
         overall = 0.0
+        recalled = getattr(self, "_session_recalled", None)
         try:
             for r in results or []:
                 if not isinstance(r, dict):
@@ -781,6 +893,11 @@ class HolographicMemoryProvider(MemoryProvider):
                 r["confidence_label"] = _confidence_label(conf)
                 if conf > overall:
                     overall = conf
+                # Track the recall for end-of-session outcome attribution.
+                if recalled is not None:
+                    fid = r.get("fact_id")
+                    if isinstance(fid, int):
+                        recalled.append(fid)
         except Exception as exc:
             logger.debug("recall confidence annotation skipped: %s", exc)
         return round(overall, 3)
