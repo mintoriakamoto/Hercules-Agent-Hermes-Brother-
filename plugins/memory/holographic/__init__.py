@@ -84,6 +84,66 @@ _PREFETCH_SPREAD_MAX = 2
 
 
 # ---------------------------------------------------------------------------
+# Metacognition: calibrated recall confidence
+# ---------------------------------------------------------------------------
+# A recalled fact carries several signals memory already tracks; on their own
+# none tells the agent "how much should I rely on this?". Blend them into one
+# calibrated confidence in [0,1] and surface it with every recall, so the agent
+# can state a high-confidence memory as fact and HEDGE a low-confidence one
+# instead of asserting a weak guess. Confidence = a trust-weighted mix of:
+#   • trust      — the learned reliability score (feedback-trained)
+#   • corroboration — how often the fact has been confirmed helpful (saturating)
+#   • recency    — gentle temporal freshness (a year-old fact is less certain)
+_CONFIDENCE_TRUST_WEIGHT = 0.5
+_CONFIDENCE_CORROBORATION_WEIGHT = 0.3
+_CONFIDENCE_RECENCY_WEIGHT = 0.2
+_CONFIDENCE_CORROBORATION_SATURATION = 3   # helpful ratings for full corroboration
+_CONFIDENCE_RECENCY_HALF_LIFE_DAYS = 180.0  # matches the retriever's recency default
+
+
+def _recall_confidence(fact: dict) -> float:
+    """Calibrated 0-1 confidence that a recalled fact is reliable to act on.
+
+    Blends learned trust, corroboration (confirmed-helpful count, saturating),
+    and recency. Defensive: bad/missing fields degrade gracefully rather than
+    raising, so a malformed row never breaks a recall.
+    """
+    from .store import _decay_factor
+
+    def _f(value, default):
+        try:
+            return float(value if value is not None else default)
+        except (TypeError, ValueError):
+            return default
+
+    trust = max(0.0, min(1.0, _f(fact.get("trust_score"), 0.5)))
+    helpful = max(0.0, _f(fact.get("helpful_count"), 0.0))
+    corroboration = (
+        min(1.0, helpful / _CONFIDENCE_CORROBORATION_SATURATION)
+        if _CONFIDENCE_CORROBORATION_SATURATION
+        else 0.0
+    )
+    recency = _decay_factor(
+        fact.get("updated_at") or fact.get("created_at"),
+        _CONFIDENCE_RECENCY_HALF_LIFE_DAYS,
+    )
+    conf = (
+        _CONFIDENCE_TRUST_WEIGHT * trust
+        + _CONFIDENCE_CORROBORATION_WEIGHT * corroboration
+        + _CONFIDENCE_RECENCY_WEIGHT * recency
+    )
+    return max(0.0, min(1.0, conf))
+
+
+def _confidence_label(conf: float) -> str:
+    if conf >= 0.66:
+        return "high"
+    if conf >= 0.33:
+        return "medium"
+    return "low"
+
+
+# ---------------------------------------------------------------------------
 # Tool schemas (unchanged from original PR)
 # ---------------------------------------------------------------------------
 
@@ -113,7 +173,11 @@ FACT_STORE_SCHEMA = {
         "• contradict — Memory hygiene: find conflicting claims.\n"
         "• update/remove/list — CRUD operations.\n\n"
         "IMPORTANT: Before answering questions about the user, ALWAYS probe, "
-        "graph, or reason first."
+        "graph, or reason first.\n"
+        "Recall results carry a calibrated `confidence` (0-1) + `confidence_label` "
+        "per fact and an overall `recall_confidence`: state high-confidence "
+        "memories as fact, but HEDGE low-confidence ones (\"I believe…\", verify) "
+        "instead of asserting a weak guess."
     ),
     "parameters": {
         "type": "object",
@@ -537,7 +601,11 @@ class HolographicMemoryProvider(MemoryProvider):
                     limit=int(args.get("limit", 10)),
                 )
                 self._note_co_activation(results)
-                return json.dumps({"results": results, "count": len(results)})
+                recall_conf = self._annotate_confidence(results)
+                return json.dumps({
+                    "results": results, "count": len(results),
+                    "recall_confidence": recall_conf,
+                })
 
             elif action == "probe":
                 results = retriever.probe(
@@ -546,7 +614,11 @@ class HolographicMemoryProvider(MemoryProvider):
                     limit=int(args.get("limit", 10)),
                 )
                 self._note_co_activation(results)
-                return json.dumps({"results": results, "count": len(results)})
+                recall_conf = self._annotate_confidence(results)
+                return json.dumps({
+                    "results": results, "count": len(results),
+                    "recall_confidence": recall_conf,
+                })
 
             elif action == "related":
                 results = retriever.related(
@@ -555,7 +627,11 @@ class HolographicMemoryProvider(MemoryProvider):
                     limit=int(args.get("limit", 10)),
                 )
                 self._note_co_activation(results)
-                return json.dumps({"results": results, "count": len(results)})
+                recall_conf = self._annotate_confidence(results)
+                return json.dumps({
+                    "results": results, "count": len(results),
+                    "recall_confidence": recall_conf,
+                })
 
             elif action == "reason":
                 entities = args.get("entities", [])
@@ -567,7 +643,11 @@ class HolographicMemoryProvider(MemoryProvider):
                     limit=int(args.get("limit", 10)),
                 )
                 self._note_co_activation(results)
-                return json.dumps({"results": results, "count": len(results)})
+                recall_conf = self._annotate_confidence(results)
+                return json.dumps({
+                    "results": results, "count": len(results),
+                    "recall_confidence": recall_conf,
+                })
 
             elif action == "contradict":
                 results = retriever.contradict(
@@ -617,7 +697,11 @@ class HolographicMemoryProvider(MemoryProvider):
                     limit=int(args.get("limit", 20)),
                 )
                 self._note_co_activation(results)
-                return json.dumps({"facts": results, "count": len(results)})
+                recall_conf = self._annotate_confidence(results)
+                return json.dumps({
+                    "facts": results, "count": len(results),
+                    "recall_confidence": recall_conf,
+                })
 
             elif action == "spread":
                 # Spreading activation over durable Hebbian edges: surface the
@@ -643,9 +727,11 @@ class HolographicMemoryProvider(MemoryProvider):
                     limit=int(args.get("limit", 10)),
                     min_strength=float(args.get("min_strength", 0.0)),
                 )
-                return json.dumps(
-                    {"seed": int(seed_id), "facts": results, "count": len(results)}
-                )
+                recall_conf = self._annotate_confidence(results)
+                return json.dumps({
+                    "seed": int(seed_id), "facts": results, "count": len(results),
+                    "recall_confidence": recall_conf,
+                })
 
             else:
                 return tool_error(f"Unknown action: {action}")
@@ -678,6 +764,26 @@ class HolographicMemoryProvider(MemoryProvider):
             return tool_error(str(exc))
 
     # -- Hebbian co-activation reinforcement ---------------------------------
+
+    def _annotate_confidence(self, results: list) -> float:
+        """Tag each recalled fact with its calibrated confidence + label, and
+        return the overall recall confidence (the best evidence available).
+
+        Best-effort: a malformed result never breaks the recall.
+        """
+        overall = 0.0
+        try:
+            for r in results or []:
+                if not isinstance(r, dict):
+                    continue
+                conf = _recall_confidence(r)
+                r["confidence"] = round(conf, 3)
+                r["confidence_label"] = _confidence_label(conf)
+                if conf > overall:
+                    overall = conf
+        except Exception as exc:
+            logger.debug("recall confidence annotation skipped: %s", exc)
+        return round(overall, 3)
 
     def _note_co_activation(self, results: list) -> None:
         """Record a recall episode of co-activated fact_ids.
