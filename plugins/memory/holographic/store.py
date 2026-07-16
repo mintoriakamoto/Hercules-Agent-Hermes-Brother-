@@ -249,6 +249,12 @@ class MemoryStore:
             if not self._entry["ready"]:
                 self._init_db()
                 self._entry["ready"] = True
+            # _init_db may have quarantined a corrupt DB and swapped the shared
+            # connection for a fresh one. Re-sync from the registry under the
+            # lock so an instance that captured the pre-rebuild connection above
+            # (or is skipping init on the ready path) never keeps the stale,
+            # now-closed handle.
+            self._conn = self._entry["conn"]
 
     # ------------------------------------------------------------------
     # Initialisation
