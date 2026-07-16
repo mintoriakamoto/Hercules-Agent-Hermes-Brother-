@@ -782,6 +782,53 @@ def _sort_skills(skills: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return sorted(skills, key=lambda s: (s.get("category") or "", s["name"]))
 
 
+# A skill needs at least this much NET positive feedback (helpful − unhelpful)
+# to be flagged "proven" — matches the curator's archive-keep threshold so the
+# two effectiveness surfaces agree on what "a track record" means.
+_PROVEN_EFFECTIVENESS_THRESHOLD = 2
+
+
+def _annotate_effectiveness(skills: List[Dict[str, Any]]) -> List[str]:
+    """Annotate skill entries in place with their outcome telemetry.
+
+    Fields are added CONDITIONALLY — only for skills that actually carry a
+    signal (a real use, view, or feedback record) — so never-touched skills
+    keep the minimal name/description/category shape. This gives the agent the
+    same effectiveness signal the curator uses, at the point where it's picking
+    which skill to reach for. Returns the names flagged "proven" (net-positive
+    track record) as an at-a-glance pointer. Best-effort: telemetry problems
+    never break the listing.
+    """
+    proven: List[str] = []
+    try:
+        from tools import skill_usage as _u
+
+        usage = _u.load_usage()
+        if not usage:
+            return proven
+        for s in skills:
+            rec = usage.get(s.get("name"))
+            if not isinstance(rec, dict):
+                continue
+            use_count = int(rec.get("use_count") or 0)
+            helpful = int(rec.get("helpful_count") or 0)
+            unhelpful = int(rec.get("unhelpful_count") or 0)
+            if use_count == 0 and helpful == 0 and unhelpful == 0:
+                continue  # a record with no real signal — stay minimal
+            net = helpful - unhelpful
+            s["use_count"] = use_count
+            if helpful or unhelpful:
+                s["helpful_count"] = helpful
+                s["unhelpful_count"] = unhelpful
+                s["net_effectiveness"] = net
+            if net >= _PROVEN_EFFECTIVENESS_THRESHOLD:
+                s["proven"] = True
+                proven.append(s["name"])
+    except Exception as e:
+        logger.debug("skill effectiveness annotation skipped: %s", e)
+    return proven
+
+
 def skills_list(category: str = None, task_id: str = None) -> str:
     """
     List all available skills (progressive disclosure tier 1 - minimal metadata).
@@ -831,21 +878,32 @@ def skills_list(category: str = None, task_id: str = None) -> str:
         # Sort by category then name
         all_skills = _sort_skills(all_skills)
 
+        # Annotate each skill with its outcome telemetry (proven-helpful skills
+        # earn a `proven` flag) so the agent can preferentially reach for what
+        # has actually worked. Ordering is unchanged — this is signal, not a
+        # re-rank — so a proven skill is marked, not hidden by position.
+        proven = _annotate_effectiveness(all_skills)
+
         # Extract unique categories
         categories = sorted(
             {s.get("category") for s in all_skills if s.get("category")}
         )
 
-        return json.dumps(
-            {
-                "success": True,
-                "skills": all_skills,
-                "categories": categories,
-                "count": len(all_skills),
-                "hint": "Use skill_view(name) to see full content, tags, and linked files",
-            },
-            ensure_ascii=False,
-        )
+        result = {
+            "success": True,
+            "skills": all_skills,
+            "categories": categories,
+            "count": len(all_skills),
+            "hint": "Use skill_view(name) to see full content, tags, and linked files",
+        }
+        if proven:
+            result["proven"] = proven
+            result["hint"] += (
+                ". Skills marked `proven` have a net-positive track record — "
+                "prefer them when several fit."
+            )
+
+        return json.dumps(result, ensure_ascii=False)
 
     except Exception as e:
         return tool_error(str(e), success=False)
