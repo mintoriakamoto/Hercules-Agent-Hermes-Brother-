@@ -24,10 +24,10 @@ A quick search before you build saves your time and keeps the PR queue clean —
 
 - **Search both open *and* merged PRs and issues** for your topic or error symptom — the duplicate-check in the PR template fires at review time, after you've already done the work:
   ```bash
-  gh search issues --repo NousResearch/hercules-agent "<your terms>"
-  gh search prs --repo NousResearch/hercules-agent --state all "<your terms>"
+  gh search issues --repo mintoriakamoto/Hercules-Agent-Hermes-Brother- "<your terms>"
+  gh search prs --repo mintoriakamoto/Hercules-Agent-Hermes-Brother- --state all "<your terms>"
   ```
-  Or use the web UI: [issues](https://github.com/NousResearch/hercules-agent/issues?q=) · [PRs (all states)](https://github.com/NousResearch/hercules-agent/pulls?q=is%3Apr).
+  Or use the web UI: [issues](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/issues?q=) · [PRs (all states)](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/pulls?q=is%3Apr).
 - **The issue tracker can lag the code.** Many requested features are already implemented in-tree, so also search the source (`search_files`, or your editor's grep) for the capability before proposing it.
 - **If an open PR already addresses it**, consider reviewing or improving that one instead of opening a competing duplicate.
 - **For larger work**, comment on the issue to signal you're working on it, so others don't start the same thing.
@@ -156,7 +156,7 @@ which silently destroys the running runtime mid-session. Keeping it outside the
 tree means no relative path from the workspace resolves to it.
 
 ```bash
-git clone https://github.com/NousResearch/hercules-agent.git
+git clone https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git
 cd hercules-agent
 
 # Create venv with Python 3.11, OUTSIDE the source tree
@@ -987,7 +987,7 @@ test(tools): add unit tests for file_operations
 
 ## Reporting Issues
 
-- Use [GitHub Issues](https://github.com/NousResearch/hercules-agent/issues)
+- Use [GitHub Issues](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/issues)
 - Include: OS, Python version, Hercules version (`hercules version`), full error traceback
 - Include steps to reproduce
 - Check existing issues before creating duplicates

@@ -70,7 +70,7 @@ hercules memory setup        # select "honcho" — runs the Honcho-specific post
 
 The legacy `hercules honcho setup` command still works (it now redirects to `hercules memory setup`), but is only registered after Honcho is selected as the active memory provider.
 
-**Config:** `$HERCULES_HOME/honcho.json` (profile-local) or `~/.honcho/config.json` (global). Resolution order: `$HERCULES_HOME/honcho.json` > `~/.hercules/honcho.json` > `~/.honcho/config.json`. See the [config reference](https://github.com/NousResearch/hercules-agent/blob/main/plugins/memory/honcho/README.md) and the [Honcho integration guide](https://docs.honcho.dev/v3/guides/integrations/hercules).
+**Config:** `$HERCULES_HOME/honcho.json` (profile-local) or `~/.honcho/config.json` (global). Resolution order: `$HERCULES_HOME/honcho.json` > `~/.hercules/honcho.json` > `~/.honcho/config.json`. See the [config reference](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/blob/main/plugins/memory/honcho/README.md) and the [Honcho integration guide](https://docs.honcho.dev/v3/guides/integrations/hercules).
 
 <details>
 <summary>Full config reference</summary>
@@ -272,7 +272,7 @@ Off-gateway these keys do nothing. `hercules memory setup` only prompts for them
 
 </details>
 
-See the [config reference](https://github.com/NousResearch/hercules-agent/blob/main/plugins/memory/honcho/README.md) and [Honcho integration guide](https://docs.honcho.dev/v3/guides/integrations/hercules).
+See the [config reference](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/blob/main/plugins/memory/honcho/README.md) and [Honcho integration guide](https://docs.honcho.dev/v3/guides/integrations/hercules).
 
 
 ---
@@ -436,7 +436,7 @@ The setup wizard installs dependencies automatically and only installs what's ne
 | `retain_assistant_prefix` | `Assistant` | Label used before assistant turns in auto-retained transcripts |
 | `recall_tags` | — | Tags to filter on recall |
 
-See [plugin README](https://github.com/NousResearch/hercules-agent/blob/main/plugins/memory/hindsight/README.md) for the full configuration reference.
+See [plugin README](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/blob/main/plugins/memory/hindsight/README.md) for the full configuration reference.
 
 ---
 

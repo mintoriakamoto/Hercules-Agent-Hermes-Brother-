@@ -153,7 +153,7 @@ Full automation blueprints gallery: [hercules-agent.nousresearch.com/docs/refere
 
 Documentation: [hercules-agent.nousresearch.com](https://hercules-agent.nousresearch.com)
 
-GitHub: [github.com/NousResearch/hercules-agent](https://github.com/NousResearch/hercules-agent)
+GitHub: [github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-)
 
 ---
 

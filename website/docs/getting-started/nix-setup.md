@@ -41,17 +41,17 @@ No clone needed. Nix fetches, builds, and runs everything:
 
 ```bash
 # Run the desktop app
-nix run github:NousResearch/hercules-agent#desktop
+nix run github:mintoriakamoto/Hercules-Agent-Hermes-Brother-#desktop
 
 # Or install persistently
-nix profile install github:NousResearch/hercules-agent#desktop
+nix profile install github:mintoriakamoto/Hercules-Agent-Hermes-Brother-#desktop
 
 # run the tui
-nix run github:NousResearch/hercules-agent -- setup
-nix run github:NousResearch/hercules-agent -- --tui
+nix run github:mintoriakamoto/Hercules-Agent-Hermes-Brother- -- setup
+nix run github:mintoriakamoto/Hercules-Agent-Hermes-Brother- -- --tui
 
 # or install it in your profile
-nix profile install github:NousResearch/hercules-agent
+nix profile install github:mintoriakamoto/Hercules-Agent-Hermes-Brother-
 hercules setup
 hercules --tui
 ```
@@ -69,7 +69,7 @@ The `default` package adds ~700 MB to the closure. If you only need messaging pl
 <summary><strong>Running from a local clone</strong></summary>
 
 ```bash
-git clone https://github.com/NousResearch/hercules-agent.git
+git clone https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git
 cd hercules-agent
 nix develop
 hercules setup
@@ -94,7 +94,7 @@ This module requires NixOS. For non-NixOS systems (macOS, other Linux distros), 
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    hercules-agent.url = "github:NousResearch/hercules-agent";
+    hercules-agent.url = "github:mintoriakamoto/Hercules-Agent-Hermes-Brother-";
   };
 
   outputs = { nixpkgs, hercules-agent, ... }: {
@@ -733,7 +733,7 @@ External flakes can override the package directly:
 
 ```nix
 {
-  inputs.hercules-agent.url = "github:NousResearch/hercules-agent";
+  inputs.hercules-agent.url = "github:mintoriakamoto/Hercules-Agent-Hermes-Brother-";
   outputs = { hercules-agent, nixpkgs, ... }: {
     nixpkgs.overlays = [ hercules-agent.overlays.default ];
     # Then:

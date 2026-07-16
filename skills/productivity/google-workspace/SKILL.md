@@ -13,7 +13,7 @@ required_credential_files:
 metadata:
   hercules:
     tags: [Google, Gmail, Calendar, Drive, Sheets, Docs, Contacts, Email, OAuth]
-    homepage: https://github.com/NousResearch/hercules-agent
+    homepage: https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-
     related_skills: [himalaya]
 ---
 

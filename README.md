@@ -9,7 +9,7 @@
 <p align="center">
   <a href="https://hercules-agent.nousresearch.com/docs/"><img src="https://img.shields.io/badge/Docs-hercules--agent.nousresearch.com-FFD700?style=for-the-badge" alt="Documentation"></a>
   <a href="https://discord.gg/NousResearch"><img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
-  <a href="https://github.com/NousResearch/hercules-agent/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
+  <a href="https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
   <a href="https://nousresearch.com"><img src="https://img.shields.io/badge/Built%20by-Nous%20Research-blueviolet?style=for-the-badge" alt="Built by Nous Research"></a>
   <a href="README.zh-CN.md"><img src="https://img.shields.io/badge/Lang-中文-red?style=for-the-badge" alt="中文"></a>
   <a href="README.ur-pk.md"><img src="https://img.shields.io/badge/Lang-اردو-green?style=for-the-badge" alt="اردو"></a>
@@ -42,7 +42,7 @@ curl -fsSL https://hercules-agent.nousresearch.com/install.sh | bash
 
 ### Windows (native, PowerShell)
 
-> **Heads up:** Native Windows runs Hercules without WSL — CLI, gateway, TUI, and tools all work natively. If you'd rather use WSL2, the Linux/macOS one-liner above works there too. Found a bug? Please [file issues](https://github.com/NousResearch/hercules-agent/issues).
+> **Heads up:** Native Windows runs Hercules without WSL — CLI, gateway, TUI, and tools all work natively. If you'd rather use WSL2, the Linux/macOS one-liner above works there too. Found a bug? Please [file issues](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/issues).
 
 Run this in PowerShell:
 
@@ -231,7 +231,7 @@ scripts/run_tests.sh
 
 - 💬 [Discord](https://discord.gg/NousResearch)
 - 📚 [Skills Hub](https://agentskills.io)
-- 🐛 [Issues](https://github.com/NousResearch/hercules-agent/issues)
+- 🐛 [Issues](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/issues)
 - 🔌 [computer-use-linux](https://github.com/avifenesh/computer-use-linux) — Linux desktop-control MCP server for Hercules and other MCP hosts, with AT-SPI accessibility trees, Wayland/X11 input, screenshots, and compositor window targeting.
 - 🔌 [HerculesClaw](https://github.com/AaronWong1999/herculesclaw) — Community WeChat bridge: Run Hercules Agent and OpenClaw on the same WeChat account.
 

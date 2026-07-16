@@ -20,7 +20,7 @@ curl -fsSL https://hercules-agent.nousresearch.com/install.sh | bash
 
 ### Windows（原生，PowerShell）
 
-原生 Windows 无需 WSL 即可运行 Hercules——CLI、gateway、TUI 和工具均可原生运行。（原生安装与 WSL2 安装可干净共存；唯一仅限 WSL2 的功能见下方功能说明。）遇到 bug 请[提交 issue](https://github.com/NousResearch/hercules-agent/issues)。
+原生 Windows 无需 WSL 即可运行 Hercules——CLI、gateway、TUI 和工具均可原生运行。（原生安装与 WSL2 安装可干净共存；唯一仅限 WSL2 的功能见下方功能说明。）遇到 bug 请[提交 issue](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/issues)。
 
 打开 PowerShell 并运行：
 

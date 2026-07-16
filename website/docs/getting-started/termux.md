@@ -87,7 +87,7 @@ Why these packages?
 ### 2. Clone Hercules
 
 ```bash
-git clone https://github.com/NousResearch/hercules-agent.git
+git clone https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git
 cd hercules-agent
 ```
 

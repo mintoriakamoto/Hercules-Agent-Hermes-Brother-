@@ -8,7 +8,7 @@ platforms: [linux, macos, windows]
 metadata:
   hercules:
     tags: [hercules, setup, configuration, multi-agent, spawning, cli, gateway, development]
-    homepage: https://github.com/NousResearch/hercules-agent
+    homepage: https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-
     related_skills: [claude-code, codex, opencode]
 ---
 
@@ -40,7 +40,7 @@ Good verification targets:
 
 - CLI commands: `hercules --help`, `hercules <command> --help`, and `hercules_cli/main.py`
 - User documentation: https://hercules-agent.nousresearch.com/docs/
-- Source tree: https://github.com/NousResearch/hercules-agent
+- Source tree: https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-
 
 ## Quick Start
 

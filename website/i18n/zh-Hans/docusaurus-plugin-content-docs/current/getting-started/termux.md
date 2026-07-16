@@ -80,7 +80,7 @@ pkg install -y git python clang rust make pkg-config libffi openssl nodejs ripgr
 ### 2. 克隆 Hercules
 
 ```bash
-git clone https://github.com/NousResearch/hercules-agent.git
+git clone https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git
 cd hercules-agent
 ```
 

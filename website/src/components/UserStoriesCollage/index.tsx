@@ -295,7 +295,7 @@ export default function UserStoriesCollage(): JSX.Element {
       <div className={styles.footer}>
         Built something with Hercules?{' '}
         <a
-          href="https://github.com/NousResearch/hercules-agent/edit/main/website/src/data/userStories.json"
+          href="https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/edit/main/website/src/data/userStories.json"
           target="_blank"
           rel="noopener noreferrer"
         >
