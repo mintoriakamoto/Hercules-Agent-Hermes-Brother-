@@ -4,9 +4,11 @@ Single-user Hercules memory store plugin.
 """
 
 import logging
+import math
 import re
 import sqlite3
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -108,6 +110,38 @@ _HELPFUL_DELTA   =  0.05
 _UNHELPFUL_DELTA = -0.10
 _TRUST_MIN       =  0.0
 _TRUST_MAX       =  1.0
+
+# Hebbian association decay: an edge that stops being reinforced fades, so
+# spreading activation reflects what is CURRENTLY useful, not what was useful a
+# year ago. Strength halves every _ASSOCIATION_HALF_LIFE_DAYS of no
+# reinforcement (applied lazily on read and on the next reinforce). Edges whose
+# effective strength falls below _ASSOCIATION_PRUNE_FLOOR are hygiene-pruned.
+_ASSOCIATION_HALF_LIFE_DAYS = 30.0
+_ASSOCIATION_PRUNE_FLOOR = 0.05
+
+
+def _decay_factor(updated_at: object, half_life_days: float = _ASSOCIATION_HALF_LIFE_DAYS) -> float:
+    """Exponential decay 0.5^(age_days / half_life). 1.0 if age is unknown/negative.
+
+    Mirrors the retriever's temporal decay so associations age on the same
+    curve as fact recency. Defensive: any parse failure yields 1.0 (no decay)
+    so bad data never erases an edge.
+    """
+    if not updated_at or half_life_days <= 0:
+        return 1.0
+    try:
+        if isinstance(updated_at, str):
+            ts = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+        else:
+            ts = updated_at
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        age_days = (datetime.now(timezone.utc) - ts).total_seconds() / 86400.0
+        if age_days <= 0:
+            return 1.0
+        return math.pow(0.5, age_days / half_life_days)
+    except (ValueError, TypeError):
+        return 1.0
 
 # Entity extraction patterns
 _RE_CAPITALIZED  = re.compile(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b')
@@ -638,22 +672,32 @@ class MemoryStore:
             ).fetchone()[0]
             if present < 2:
                 return 0.0
-            self._conn.execute(
-                """
-                INSERT INTO fact_associations (fact_a, fact_b, strength, updated_at)
-                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(fact_a, fact_b) DO UPDATE SET
-                    strength   = MIN(1.0, fact_associations.strength + excluded.strength),
-                    updated_at = CURRENT_TIMESTAMP
-                """,
-                (a, b, float(delta)),
-            )
-            self._conn.commit()
             row = self._conn.execute(
-                "SELECT strength FROM fact_associations WHERE fact_a = ? AND fact_b = ?",
+                "SELECT strength, updated_at FROM fact_associations "
+                "WHERE fact_a = ? AND fact_b = ?",
                 (a, b),
             ).fetchone()
-            return row["strength"] if row else 0.0
+            if row is None:
+                new_strength = min(1.0, float(delta))
+                self._conn.execute(
+                    "INSERT INTO fact_associations (fact_a, fact_b, strength, updated_at) "
+                    "VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+                    (a, b, new_strength),
+                )
+            else:
+                # Decay the standing strength for elapsed idle time before adding
+                # — an edge that has gone quiet must re-earn its weight ("use it
+                # or lose it"), so bursts of joint usefulness matter more than a
+                # single long-ago co-occurrence.
+                decayed = row["strength"] * _decay_factor(row["updated_at"])
+                new_strength = min(1.0, decayed + float(delta))
+                self._conn.execute(
+                    "UPDATE fact_associations SET strength = ?, updated_at = CURRENT_TIMESTAMP "
+                    "WHERE fact_a = ? AND fact_b = ?",
+                    (new_strength, a, b),
+                )
+            self._conn.commit()
+            return new_strength
 
     def get_associations(
         self, fact_id: int, limit: int = 10, min_strength: float = 0.0
@@ -665,20 +709,32 @@ class MemoryStore:
         claims.
         """
         fid = int(fact_id)
+        floor = float(min_strength)
+        want = int(limit)
         with self._lock:
             rows = self._conn.execute(
                 """
                 SELECT CASE WHEN fact_a = ? THEN fact_b ELSE fact_a END AS other_id,
-                       strength
+                       strength, updated_at
                 FROM fact_associations
-                WHERE (fact_a = ? OR fact_b = ?) AND strength >= ?
-                ORDER BY strength DESC, updated_at DESC
-                LIMIT ?
+                WHERE fact_a = ? OR fact_b = ?
                 """,
-                (fid, fid, fid, float(min_strength), int(limit)),
+                (fid, fid, fid),
             ).fetchall()
-            out: list[dict] = []
+            # Rank by EFFECTIVE (time-decayed) strength, not the standing value,
+            # so an edge that hasn't been reinforced lately ranks below a fresher
+            # one. Decay can reorder edges, so score in Python rather than SQL.
+            scored = []
             for r in rows:
+                eff = r["strength"] * _decay_factor(r["updated_at"])
+                if eff >= floor:
+                    scored.append((eff, r["other_id"]))
+            scored.sort(key=lambda t: t[0], reverse=True)
+
+            out: list[dict] = []
+            for eff, other_id in scored:
+                if len(out) >= want:
+                    break
                 fact = self._conn.execute(
                     """
                     SELECT fact_id, content, category, tags, trust_score,
@@ -687,13 +743,43 @@ class MemoryStore:
                     FROM facts
                     WHERE fact_id = ? AND superseded_by IS NULL
                     """,
-                    (r["other_id"],),
+                    (other_id,),
                 ).fetchone()
                 if fact is not None:
                     d = self._row_to_dict(fact)
-                    d["strength"] = r["strength"]
+                    d["strength"] = eff
                     out.append(d)
             return out
+
+    def prune_associations(self) -> int:
+        """Delete edges whose effective (decayed) strength has fallen below the
+        hygiene floor. Returns the count pruned.
+
+        Keeps the association graph bounded and free of links that no longer
+        pay off — the counterpart to reinforcement, run periodically (session
+        end). Best-effort; a read/compute error prunes nothing.
+        """
+        with self._lock:
+            try:
+                rows = self._conn.execute(
+                    "SELECT fact_a, fact_b, strength, updated_at FROM fact_associations"
+                ).fetchall()
+            except sqlite3.Error as exc:
+                logger.debug("prune_associations read failed: %s", exc)
+                return 0
+            doomed = [
+                (r["fact_a"], r["fact_b"])
+                for r in rows
+                if r["strength"] * _decay_factor(r["updated_at"]) < _ASSOCIATION_PRUNE_FLOOR
+            ]
+            for a, b in doomed:
+                self._conn.execute(
+                    "DELETE FROM fact_associations WHERE fact_a = ? AND fact_b = ?",
+                    (a, b),
+                )
+            if doomed:
+                self._conn.commit()
+            return len(doomed)
 
     # ------------------------------------------------------------------
     # Consolidation / typed memory

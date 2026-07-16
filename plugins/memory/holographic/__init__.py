@@ -417,6 +417,15 @@ class HolographicMemoryProvider(MemoryProvider):
                 self.reflect()
             except Exception as exc:
                 logger.debug("Reflection failed: %s", exc)
+        # Hygiene: prune Hebbian association edges whose time-decayed strength
+        # has fallen below the floor, so the graph stays bounded and reflects
+        # associations that are still paying off. Best-effort, once per session.
+        try:
+            pruned = self._store.prune_associations()
+            if pruned:
+                logger.debug("pruned %d stale association edge(s)", pruned)
+        except Exception as exc:
+            logger.debug("association prune skipped: %s", exc)
 
     def reflect(self, min_facts: int = 5, max_facts: int = 40) -> dict:
         """Synthesize higher-order insights from recent unreflected observations.
