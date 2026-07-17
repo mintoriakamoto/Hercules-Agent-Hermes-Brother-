@@ -5,6 +5,37 @@ from pathlib import Path
 from gateway.config import Platform
 from gateway.run import GatewayRunner
 from hercules_cli import kanban_db as kb
+import gateway.kanban_watchers as kw
+
+
+class TestNotifierIdleBackoff:
+    """The notifier widens its poll interval after a sustained quiet streak so
+    an idle gateway stops re-opening every board DB every few seconds, and snaps
+    back to the base cadence the moment a tick delivers something."""
+
+    def test_base_interval_below_threshold(self):
+        base = 5.0
+        for streak in range(kw._NOTIFIER_IDLE_BACKOFF_AFTER_TICKS):
+            assert kw._notifier_idle_interval(streak, base) == base
+
+    def test_widens_at_and_past_threshold(self):
+        base = 5.0
+        widened = kw._notifier_idle_interval(
+            kw._NOTIFIER_IDLE_BACKOFF_AFTER_TICKS, base
+        )
+        assert widened == kw._NOTIFIER_IDLE_MAX_INTERVAL
+        assert widened > base
+        # Stays widened for longer streaks.
+        assert kw._notifier_idle_interval(1000, base) == kw._NOTIFIER_IDLE_MAX_INTERVAL
+
+    def test_delivery_snaps_back_to_base(self):
+        # streak resets to 0 on a delivering tick.
+        assert kw._notifier_idle_interval(0, 5.0) == 5.0
+
+    def test_never_returns_below_base_interval(self):
+        # A configured interval larger than the idle cap is honored.
+        big = kw._NOTIFIER_IDLE_MAX_INTERVAL + 30
+        assert kw._notifier_idle_interval(9999, big) == big
 
 
 class RecordingAdapter:

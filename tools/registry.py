@@ -48,8 +48,26 @@ def _module_registers_tools(module_path: Path) -> bool:
     """
     try:
         source = module_path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+    # Fast substring prefilter before the (much more expensive) AST parse.
+    # A module can only contain a top-level ``registry.register(...)`` call if
+    # the literal text ``registry.register(`` appears somewhere in the source,
+    # so files without it can be rejected without parsing. ast.parse runs on
+    # every startup (this gate decides which tool modules to import) and is
+    # never cached the way bytecode is, so parsing all ~90 files in tools/ costs
+    # ~0.4s on the critical path to first response. The prefilter cuts that to a
+    # cheap string scan for the majority of files that never register a tool,
+    # while the AST check below still runs on the few that do — preserving the
+    # exact top-level-vs-nested distinction (a match inside a function body,
+    # comment, or string must NOT count).
+    if "registry.register(" not in source:
+        return False
+
+    try:
         tree = ast.parse(source, filename=str(module_path))
-    except (OSError, SyntaxError):
+    except SyntaxError:
         return False
 
     return any(_is_registry_register_call(stmt) for stmt in tree.body)

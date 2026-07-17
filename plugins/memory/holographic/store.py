@@ -751,21 +751,35 @@ class MemoryStore:
                 if eff >= floor:
                     scored.append((eff, r["other_id"]))
             scored.sort(key=lambda t: t[0], reverse=True)
+            if not scored:
+                return []
+
+            # Batch-fetch all candidate facts in ONE query instead of a
+            # SELECT-per-edge (N+1). We then walk `scored` in rank order and
+            # take the first `want` that survived the superseded filter — this
+            # preserves the exact ordering and superseded-exclusion semantics of
+            # the old per-row loop while collapsing up to `len(scored)` round
+            # trips into one. (Association fan-out per fact is bounded by
+            # pruning, so the IN-list stays well under SQLite's variable limit.)
+            other_ids = [oid for _eff, oid in scored]
+            placeholders = ",".join("?" * len(other_ids))
+            fact_rows = self._conn.execute(
+                f"""
+                SELECT fact_id, content, category, tags, trust_score,
+                       retrieval_count, helpful_count, created_at, updated_at,
+                       fact_type
+                FROM facts
+                WHERE fact_id IN ({placeholders}) AND superseded_by IS NULL
+                """,
+                other_ids,
+            ).fetchall()
+            by_id = {r["fact_id"]: r for r in fact_rows}
 
             out: list[dict] = []
             for eff, other_id in scored:
                 if len(out) >= want:
                     break
-                fact = self._conn.execute(
-                    """
-                    SELECT fact_id, content, category, tags, trust_score,
-                           retrieval_count, helpful_count, created_at, updated_at,
-                           fact_type
-                    FROM facts
-                    WHERE fact_id = ? AND superseded_by IS NULL
-                    """,
-                    (other_id,),
-                ).fetchone()
+                fact = by_id.get(other_id)
                 if fact is not None:
                     d = self._row_to_dict(fact)
                     d["strength"] = eff

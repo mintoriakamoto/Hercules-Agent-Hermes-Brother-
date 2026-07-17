@@ -160,6 +160,66 @@ def test_promote_blocked_task_works(conn):
 
 
 # ---------------------------------------------------------------------------
+# recompute_ready — the auto-promote pass the dispatcher runs every tick.
+# These lock the batched (set-based) parent-status + sticky-block lookups that
+# replaced the per-task N+1, across a mix of candidates in ONE pass.
+# ---------------------------------------------------------------------------
+
+
+def test_recompute_ready_batched_promotes_exactly_the_eligible_set(conn):
+    p_done = kb.create_task(conn, title="parent-done", assignee="s")
+    p_open = kb.create_task(conn, title="parent-open", assignee="s")
+    # Create children while BOTH parents are still open, so they start in 'todo'
+    # (create_task auto-promotes a child whose parents are already done).
+    # (a) all parents done -> promote
+    ready_child = kb.create_task(conn, title="ready-child", parents=[p_done], assignee="s")
+    # (b) one parent still open -> NOT promoted
+    waiting_child = kb.create_task(
+        conn, title="waiting-child", parents=[p_done, p_open], assignee="s"
+    )
+    assert kb.get_task(conn, ready_child).status == "todo"
+    assert kb.get_task(conn, waiting_child).status == "todo"
+    # (c) no parents at all, forced into 'todo' -> treated as ready (all([]))
+    orphan = kb.create_task(conn, title="orphan", assignee="s")
+    conn.execute("UPDATE tasks SET status='todo' WHERE id=?", (orphan,))
+    # Now close only p_done.
+    conn.execute("UPDATE tasks SET status='done' WHERE id=?", (p_done,))
+    conn.commit()
+
+    promoted = kb.recompute_ready(conn)
+
+    assert kb.get_task(conn, ready_child).status == "ready"
+    assert kb.get_task(conn, waiting_child).status == "todo"
+    assert kb.get_task(conn, orphan).status == "ready"
+    assert promoted == 2
+
+
+def test_recompute_ready_batched_respects_sticky_block(conn):
+    p_done = kb.create_task(conn, title="parent", assignee="s")
+    conn.execute("UPDATE tasks SET status='done' WHERE id=?", (p_done,))
+
+    # Sticky-blocked task: latest blocked/unblocked event is 'blocked' → must
+    # NOT auto-recover even though its parent is done.
+    sticky = kb.create_task(conn, title="sticky", parents=[p_done], assignee="s")
+    conn.execute("UPDATE tasks SET status='blocked' WHERE id=?", (sticky,))
+    kb._append_event(conn, sticky, "blocked", None)
+
+    # Non-sticky blocked task (latest event is 'unblocked') with parent done →
+    # eligible for auto-recovery.
+    recover = kb.create_task(conn, title="recover", parents=[p_done], assignee="s")
+    conn.execute("UPDATE tasks SET status='blocked' WHERE id=?", (recover,))
+    kb._append_event(conn, recover, "blocked", None)
+    kb._append_event(conn, recover, "unblocked", None)
+    conn.commit()
+
+    promoted = kb.recompute_ready(conn)
+
+    assert kb.get_task(conn, sticky).status == "blocked", "sticky must stay blocked"
+    assert kb.get_task(conn, recover).status == "ready", "non-sticky must recover"
+    assert promoted == 1
+
+
+# ---------------------------------------------------------------------------
 # CLI `_cmd_promote` — bulk via `--ids` (the issue's anti-respawn use case:
 # promote all children of a closed parent in one command).
 # ---------------------------------------------------------------------------

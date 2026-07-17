@@ -34,6 +34,30 @@ logger = logging.getLogger("gateway.run")
 MAX_ADAPTER_ABSENT_TICKS = 60
 
 
+# Idle backoff for the kanban notifier. Every tick re-opens each board's SQLite
+# DB (fresh connection + PRAGMAs) and scans its subscriptions; on a connected
+# but quiet gateway that work produces nothing the vast majority of ticks. After
+# this many CONSECUTIVE deliver-nothing ticks, the notifier widens its poll
+# interval to _NOTIFIER_IDLE_MAX_INTERVAL so an idle gateway stops paying that
+# per-board cost every few seconds. It snaps back to the base interval the
+# instant a tick delivers anything (the streak resets to 0), so notification
+# latency is only relaxed after a sustained quiet period.
+_NOTIFIER_IDLE_BACKOFF_AFTER_TICKS = 12
+_NOTIFIER_IDLE_MAX_INTERVAL = 20.0
+
+
+def _notifier_idle_interval(idle_empty_ticks: int, base_interval: float) -> float:
+    """Effective notifier sleep given the consecutive deliver-nothing streak.
+
+    Returns ``base_interval`` until the streak crosses
+    ``_NOTIFIER_IDLE_BACKOFF_AFTER_TICKS``, then the (larger) idle cap. Never
+    returns below ``base_interval`` (a small configured interval is honored).
+    """
+    if idle_empty_ticks >= _NOTIFIER_IDLE_BACKOFF_AFTER_TICKS:
+        return max(float(base_interval), _NOTIFIER_IDLE_MAX_INTERVAL)
+    return float(base_interval)
+
+
 def _resolve_auto_decompose_settings(
     load_config: Callable[[], Any],
 ) -> "tuple[bool, int]":
@@ -210,7 +234,14 @@ class GatewayKanbanWatchersMixin:
         # Initial delay so the gateway can finish wiring adapters.
         await asyncio.sleep(5)
 
+        # Consecutive ticks that delivered nothing — drives idle backoff so a
+        # connected-but-quiet gateway stops re-opening every board DB every few
+        # seconds. Reset to 0 the moment a tick delivers.
+        idle_empty_ticks = 0
         while self._running:
+            # Default to "had work" so an errored tick retries at the base
+            # cadence rather than backing off on failures.
+            tick_had_work = True
             try:
                 def _collect():
                     deliveries: list[dict] = []
@@ -312,6 +343,7 @@ class GatewayKanbanWatchersMixin:
                     return deliveries
 
                 deliveries = await asyncio.to_thread(_collect)
+                tick_had_work = bool(deliveries)
                 for d in deliveries:
                     sub = d["sub"]
                     task = d["task"]
@@ -625,8 +657,15 @@ class GatewayKanbanWatchersMixin:
                             )
             except Exception as exc:
                 logger.warning("kanban notifier tick failed: %s", exc)
+            # Track the idle streak and back off the poll interval when the
+            # gateway has been quiet for a sustained run of ticks.
+            if tick_had_work:
+                idle_empty_ticks = 0
+            else:
+                idle_empty_ticks += 1
+            effective_interval = _notifier_idle_interval(idle_empty_ticks, interval)
             # Sleep with cancellation checks.
-            for _ in range(int(max(1, interval))):
+            for _ in range(int(max(1, effective_interval))):
                 if not self._running:
                     return
                 await asyncio.sleep(1)
