@@ -3388,7 +3388,11 @@ def _try_payment_fallback(
     # (e.g. main_provider="openrouter" → skip "openrouter" in chain)
     main_provider = _read_main_provider()
     skip_labels = {skip}
-    if main_provider and main_provider.lower() in skip:
+    # Equality, not substring: `skip` is a single provider string, so `in` would
+    # match any main_provider whose name is a substring of the failed one
+    # (e.g. main "openai" ⊂ failed "openai-codex"), spuriously skipping a viable
+    # fallback. We only want to also-skip main when it IS the failed backend.
+    if main_provider and main_provider.lower() == skip:
         skip_labels.add(main_provider.lower())
     # Map common resolved_provider values back to chain labels.
     _alias_to_label = {"openrouter": "openrouter",
@@ -5412,6 +5416,13 @@ def _get_cached_client(
                     del _client_cache[evict_key]
                 _client_cache[cache_key] = (client, default_model, bound_loop)
             else:
+                # Another thread populated the cache while we built ours outside
+                # the lock. Close the now-redundant client we built before
+                # dropping it — neuter_async_httpx_del() makes __del__ a no-op,
+                # so GC will NOT close it and its httpx connection pool / fds
+                # would leak for the process lifetime (the fd-exhaustion class
+                # this cache exists to prevent).
+                _force_close_async_httpx(client)
                 client, default_model, _ = _client_cache[cache_key]
     return client, model or default_model
 

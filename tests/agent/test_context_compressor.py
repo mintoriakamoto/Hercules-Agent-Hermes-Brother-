@@ -3439,3 +3439,23 @@ class TestDoubleCompactionSummaryRole:
             "summary of earlier turns" in (m.get("content") or "")
             for m in result
         )
+
+
+class TestSessionEndResetsBaseCounters:
+    """on_session_end must clear the same base per-session counters that
+    on_session_reset clears via super() — otherwise a reused compressor leaks
+    compression_count / token counts into the next session (spurious first-turn
+    compression; first-N protection skipped)."""
+
+    def test_on_session_end_clears_base_counters(self, compressor):
+        compressor.compression_count = 3
+        compressor.last_prompt_tokens = 180_000
+        compressor.last_completion_tokens = 5_000
+        compressor.last_total_tokens = 185_000
+
+        compressor.on_session_end("session-A", [])
+
+        assert compressor.compression_count == 0
+        assert compressor.last_prompt_tokens == 0
+        assert compressor.last_completion_tokens == 0
+        assert compressor.last_total_tokens == 0
