@@ -58,7 +58,11 @@ class CodexAppServerClient:
       - Spawning thread (caller) drives request/response pairs synchronously.
       - One reader thread parses stdout, dispatches replies to the right
         pending future, and routes notifications + server-initiated requests
-        to bounded queues that the caller drains on their own cadence.
+        to queues that the caller drains on their own cadence. The queues are
+        unbounded (a maxsize would risk deadlocking the single reader thread on
+        a blocking put); cross-turn growth is bounded instead by draining at
+        the start of every turn (see CodexAppServerSession.run_turn), so a
+        turn's leftovers can never accumulate into the next turn.
       - One reader thread captures stderr for diagnostics; codex emits
         tracing logs there at RUST_LOG-controlled levels.
 
@@ -272,6 +276,31 @@ class CodexAppServerClient:
             return self._server_requests.get(timeout=timeout)
         except queue.Empty:
             return None
+
+    def drain(self) -> int:
+        """Discard any queued notifications and server-requests.
+
+        The client is reused across turns, and its queues are NOT cleared
+        between turns. When a turn exits early (``<turn_aborted>``, a deadline
+        reached after a completed assistant message, etc.) without retiring
+        the session, codex may still flush that turn's trailing
+        notifications (a late ``item/completed``, a partial follow-up
+        ``agentMessage``, a stale ``turn/completed``) into these queues after
+        the turn loop has stopped reading. If left queued, the NEXT turn's
+        projector consumes those leftovers first and grafts the previous
+        turn's content into this turn's transcript (or exits immediately on a
+        stale ``turn/completed``). Callers drain at the start of every turn so
+        each turn only sees its own events. Returns the number of messages
+        discarded (for diagnostics)."""
+        discarded = 0
+        for q in (self._notifications, self._server_requests):
+            while True:
+                try:
+                    q.get_nowait()
+                    discarded += 1
+                except queue.Empty:
+                    break
+        return discarded
 
     # ---------- diagnostics ----------
 

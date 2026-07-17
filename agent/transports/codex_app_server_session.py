@@ -400,6 +400,25 @@ class CodexAppServerSession:
         assert self._client is not None and self._thread_id is not None
         result.thread_id = self._thread_id
 
+        # Discard any events left queued by a PRIOR turn before this turn's
+        # projector begins reading. The client is reused across turns and its
+        # queues are not cleared between them; a turn that exited early
+        # (<turn_aborted>, deadline-after-completed-message) without retiring
+        # the session can leave codex's trailing notifications queued, and the
+        # fresh projector below would otherwise consume the previous turn's
+        # tail — splicing stale content into this turn's transcript, or exiting
+        # immediately on a stale turn/completed. See CodexAppServerClient.drain.
+        drained = self._client.drain()
+        if drained:
+            logger.debug(
+                "codex app-server: drained %d stale queued message(s) before turn start",
+                drained,
+            )
+        # Same rationale for the per-turn fileChange bookkeeping: an item that
+        # never received item/completed on an interrupted turn would otherwise
+        # linger here forever and could mislabel a later turn's diff summary.
+        self._pending_file_changes.clear()
+
         self._interrupt_event.clear()
         projector = CodexEventProjector()
 
@@ -660,6 +679,15 @@ class CodexAppServerSession:
 
         assert self._client is not None and self._thread_id is not None
         result.thread_id = self._thread_id
+        # Drain any events left queued by a prior turn so compaction's projector
+        # only sees compaction events (see run_turn / CodexAppServerClient.drain).
+        drained = self._client.drain()
+        if drained:
+            logger.debug(
+                "codex app-server: drained %d stale queued message(s) before compaction",
+                drained,
+            )
+        self._pending_file_changes.clear()
         self._interrupt_event.clear()
         projector = CodexEventProjector()
 

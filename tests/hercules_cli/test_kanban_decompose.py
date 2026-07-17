@@ -345,3 +345,52 @@ def test_decompose_no_aux_client_configured(kanban_home):
 
     assert outcome.ok is False
     assert "no auxiliary client" in outcome.reason
+
+
+def test_decompose_task_threads_board_to_connect(kanban_home, monkeypatch):
+    """Regression: decompose_task must select its board via the explicit
+    ``board`` kwarg, NOT the process-global HERCULES_KANBAN_BOARD env var.
+
+    The auto-decompose tick runs on a worker thread while the event loop is
+    live; mutating the global env there bled the wrong board's DB into any
+    concurrent env-resolved kanban access. Passing board explicitly removes
+    that shared-global race.
+    """
+    # Point the env var at a DIFFERENT board to prove it is not consulted.
+    monkeypatch.setenv("HERCULES_KANBAN_BOARD", "env-board-should-be-ignored")
+
+    seen_boards = []
+    real = kb.connect_closing
+
+    def _spy(*args, **kwargs):
+        seen_boards.append(kwargs.get("board"))
+        return real(*args, **kwargs)
+
+    with patch.object(kb, "connect_closing", side_effect=_spy):
+        # Unknown task id returns after the first connect_closing — enough to
+        # observe the board kwarg without any LLM/profile plumbing.
+        outcome = decomp.decompose_task("no-such-task", author="me", board="beta")
+
+    assert outcome.ok is False
+    assert seen_boards, "decompose_task must open a board connection"
+    assert seen_boards[0] == "beta", (
+        f"board kwarg must be threaded to connect_closing; saw {seen_boards!r}"
+    )
+    assert all(b == "beta" for b in seen_boards)
+
+
+def test_list_triage_ids_threads_board_to_connect(kanban_home, monkeypatch):
+    """list_triage_ids must also honor the explicit board kwarg, not env."""
+    monkeypatch.setenv("HERCULES_KANBAN_BOARD", "env-board-should-be-ignored")
+
+    seen_boards = []
+    real = kb.connect_closing
+
+    def _spy(*args, **kwargs):
+        seen_boards.append(kwargs.get("board"))
+        return real(*args, **kwargs)
+
+    with patch.object(kb, "connect_closing", side_effect=_spy):
+        decomp.list_triage_ids(board="beta")
+
+    assert seen_boards and seen_boards[0] == "beta"

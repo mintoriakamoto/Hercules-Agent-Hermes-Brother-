@@ -53,6 +53,35 @@ class TestWecomCrypto:
         with pytest.raises(SignatureError):
             crypt.decrypt("bad-sig", "1", "n", root.findtext("Encrypt", default=""))
 
+    def test_signature_compare_is_constant_time_and_none_safe(self):
+        """The callback signature is authenticated with hmac.compare_digest
+        (constant-time), not a plain `!=`. A missing/None signature must fail
+        cleanly as a mismatch rather than raising TypeError inside the
+        comparison."""
+        import hmac
+        from plugins.platforms.wecom import wecom_crypto as _wc
+        from plugins.platforms.wecom.wecom_crypto import SignatureError
+
+        app = _app()
+        crypt = WXBizMsgCrypt(app["token"], app["encoding_aes_key"], app["corp_id"])
+        encrypted_xml = crypt.encrypt("<xml/>", nonce="n", timestamp="1")
+        root = ET.fromstring(encrypted_xml)
+        encrypt_blob = root.findtext("Encrypt", default="")
+
+        # A None signature must not raise TypeError; it fails as a mismatch.
+        with pytest.raises(SignatureError):
+            crypt.decrypt(None, "1", "n", encrypt_blob)
+
+        # The correct signature (which compare_digest accepts) still verifies.
+        good_sig = _wc._sha1_signature(app["token"], "1", "n", encrypt_blob)
+        assert hmac.compare_digest(
+            good_sig,
+            root.findtext("MsgSignature", default=""),
+        )
+        crypt.decrypt(
+            root.findtext("MsgSignature", default=""), "1", "n", encrypt_blob,
+        )
+
 
 class TestWecomCallbackEventConstruction:
     def test_build_event_extracts_text_message(self):

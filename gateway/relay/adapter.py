@@ -30,6 +30,27 @@ from gateway.session import SessionSource
 
 logger = logging.getLogger(__name__)
 
+# Cap on each per-chat egress hint map (_scope_by_chat / _dm_user_by_chat /
+# _platform_by_chat). These maps are only ever written from inbound events and
+# were never pruned on disconnect, so a long-lived gateway fronting many chats
+# leaked one entry per unique chat_id for the process lifetime. The values are
+# cheap, re-learnable routing hints, so a bounded FIFO (evict oldest on
+# overflow) is safe: an evicted chat simply relearns its hint on its next
+# inbound event.
+_MAX_CHAT_HINT_ENTRIES = 4096
+
+
+def _remember_chat_hint(mapping: Dict[str, str], key: str, value: str) -> None:
+    """Set ``mapping[key] = value`` with a bounded-FIFO eviction policy."""
+    if key not in mapping and len(mapping) >= _MAX_CHAT_HINT_ENTRIES:
+        # Evict the oldest inserted entry (dicts preserve insertion order).
+        try:
+            oldest = next(iter(mapping))
+            del mapping[oldest]
+        except StopIteration:  # pragma: no cover - len>=cap implies non-empty
+            pass
+    mapping[key] = value
+
 
 def _utf16_len(text: str) -> int:
     """Count UTF-16 code units (Telegram's length unit)."""
@@ -262,16 +283,16 @@ class RelayAdapter(BasePlatformAdapter):
             platform = getattr(src, "platform", None)
             platform_value = getattr(platform, "value", platform)
             if platform_value and platform_value != "relay":
-                self._platform_by_chat[str(chat)] = str(platform_value)
+                _remember_chat_hint(self._platform_by_chat, str(chat), str(platform_value))
             scope = getattr(src, "scope_id", None)
             if scope:
-                self._scope_by_chat[str(chat)] = str(scope)
+                _remember_chat_hint(self._scope_by_chat, str(chat), str(scope))
                 return
             # DM: no scope. Remember the authentic author id for outbound
             # author-binding resolution (the user we're replying to in this DM).
             user_id = getattr(src, "user_id", None)
             if user_id:
-                self._dm_user_by_chat[str(chat)] = str(user_id)
+                _remember_chat_hint(self._dm_user_by_chat, str(chat), str(user_id))
         except Exception:  # noqa: BLE001 - scope tracking must never break inbound
             pass
 

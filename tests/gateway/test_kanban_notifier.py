@@ -307,3 +307,140 @@ def _unseen_terminal_events_for(tid, chat_id):
         return events
     finally:
         conn.close()
+
+
+class FailAfterNAdapter:
+    """Delivers the first N sends, then raises on the (N+1)th and beyond."""
+
+    def __init__(self, succeed_first=1):
+        self.succeed_first = succeed_first
+        self.sent = []
+        self.attempts = 0
+
+    async def send(self, chat_id, text, metadata=None):
+        self.attempts += 1
+        if self.attempts > self.succeed_first:
+            raise RuntimeError("simulated mid-batch send failure")
+        self.sent.append({"chat_id": chat_id, "text": text})
+
+
+def test_partial_batch_failure_does_not_redeliver_sent_events(tmp_path, monkeypatch):
+    """Regression: a mid-batch send failure must rewind the cursor only to the
+    LAST successfully-delivered event, not to before the whole batch.
+
+    Two terminal events (blocked, then crashed) are claimed in one tick. The
+    first (blocked) delivers; the second (crashed) fails. Before the fix the
+    cursor rewound to before both, so `blocked` was re-delivered on the next
+    tick (duplicate ping). Now only the un-delivered `crashed` remains unseen.
+    """
+    db_path = tmp_path / "partial-batch.db"
+    monkeypatch.setenv("HERCULES_KANBAN_DB", str(db_path))
+    kb.init_db()
+
+    conn = kb.connect()
+    try:
+        tid = kb.create_task(conn, title="two events", assignee="worker")
+        kb.add_notify_sub(conn, task_id=tid, platform="telegram", chat_id="chat-1")
+        kb._append_event(conn, tid, kind="blocked")
+        kb._append_event(conn, tid, kind="crashed")
+    finally:
+        conn.close()
+
+    adapter = FailAfterNAdapter(succeed_first=1)
+    runner = _make_runner(adapter)
+    asyncio.run(_run_one_notifier_tick(monkeypatch, runner))
+
+    # First event delivered, second attempted-and-failed.
+    assert adapter.attempts == 2
+    assert len(adapter.sent) == 1
+    assert "blocked" in adapter.sent[0]["text"].lower()
+
+    # Only the failed event remains unseen — `blocked` was NOT rewound over.
+    assert [ev.kind for ev in _unseen_terminal_events(tid)] == ["crashed"]
+
+    # A follow-up tick with a healthy adapter delivers ONLY crashed (no
+    # duplicate blocked).
+    good = RecordingAdapter()
+    asyncio.run(_run_one_notifier_tick(monkeypatch, _make_runner(good)))
+    assert len(good.sent) == 1
+    assert "crashed" in good.sent[0]["text"].lower()
+
+
+def test_absent_adapter_ages_out_after_sustained_absence(tmp_path, monkeypatch):
+    """Regression: a subscription whose adapter is permanently absent must age
+    out after MAX_ADAPTER_ABSENT_TICKS consecutive absent ticks, instead of
+    re-claiming + rewinding SQLite work forever. A transient absence (fewer
+    ticks) must NOT drop it.
+    """
+    import gateway.kanban_watchers as kw
+
+    db_path = tmp_path / "absent-ageout.db"
+    monkeypatch.setenv("HERCULES_KANBAN_DB", str(db_path))
+    kb.init_db()
+    tid = _create_completed_subscription()
+
+    # Patch the threshold down so the test is fast and deterministic.
+    monkeypatch.setattr(kw, "MAX_ADAPTER_ABSENT_TICKS", 3)
+
+    # Shared absent-count state must persist across ticks, so reuse one runner.
+    runner = GatewayRunner.__new__(GatewayRunner)
+    runner._running = True
+    runner.adapters = DisconnectedAdapters({Platform.TELEGRAM: RecordingAdapter()})
+    runner._kanban_sub_fail_counts = {}
+    runner._kanban_sub_absent_counts = {}
+
+    def _sub_count():
+        conn = kb.connect()
+        try:
+            return len(kb.list_notify_subs(conn, tid))
+        finally:
+            conn.close()
+
+    # Ticks 1 and 2: below threshold → sub survives (transient-disconnect
+    # semantics preserved), event still unseen for retry.
+    for _ in range(kw.MAX_ADAPTER_ABSENT_TICKS - 1):
+        runner._running = True
+        asyncio.run(_run_one_notifier_tick(monkeypatch, runner))
+        assert _sub_count() == 1
+        assert [ev.kind for ev in _unseen_terminal_events(tid)] == ["completed"]
+
+    # Tick 3: reaches the threshold → subscription is aged out.
+    runner._running = True
+    asyncio.run(_run_one_notifier_tick(monkeypatch, runner))
+    assert _sub_count() == 0
+
+
+def test_absent_streak_resets_when_adapter_returns(tmp_path, monkeypatch):
+    """If the adapter reconnects before the threshold, the absent streak resets
+    and the pending notification is delivered — never dropped."""
+    import gateway.kanban_watchers as kw
+
+    db_path = tmp_path / "absent-reset.db"
+    monkeypatch.setenv("HERCULES_KANBAN_DB", str(db_path))
+    kb.init_db()
+    tid = _create_completed_subscription()
+
+    monkeypatch.setattr(kw, "MAX_ADAPTER_ABSENT_TICKS", 3)
+
+    good_adapter = RecordingAdapter()
+    runner = GatewayRunner.__new__(GatewayRunner)
+    runner._running = True
+    runner.adapters = DisconnectedAdapters({Platform.TELEGRAM: good_adapter})
+    runner._kanban_sub_fail_counts = {}
+    runner._kanban_sub_absent_counts = {}
+
+    # Two absent ticks (below threshold).
+    for _ in range(2):
+        runner._running = True
+        asyncio.run(_run_one_notifier_tick(monkeypatch, runner))
+
+    # Adapter reconnects: swap in a normal dict so _authorization_adapter
+    # resolves it. The streak resets and the completion is delivered.
+    runner.adapters = {Platform.TELEGRAM: good_adapter}
+    runner._running = True
+    asyncio.run(_run_one_notifier_tick(monkeypatch, runner))
+
+    assert len(good_adapter.sent) == 1
+    assert "Kanban" in good_adapter.sent[0]["text"]
+    # Streak cleared for this subscription.
+    assert runner._kanban_sub_absent_counts == {}
