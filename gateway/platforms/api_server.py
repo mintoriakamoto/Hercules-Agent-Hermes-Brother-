@@ -1089,8 +1089,14 @@ class APIServerAdapter(BasePlatformAdapter):
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:].strip()
-            if hmac.compare_digest(token, self._api_key):
-                return None  # Auth OK
+            # hmac.compare_digest raises TypeError when a str contains
+            # non-ASCII code points; a malformed token must fail auth (401),
+            # not surface as an unhandled 500.
+            try:
+                if hmac.compare_digest(token, self._api_key):
+                    return None  # Auth OK
+            except TypeError:
+                pass
 
         logger.warning(
             "API server rejected invalid API key: %s",

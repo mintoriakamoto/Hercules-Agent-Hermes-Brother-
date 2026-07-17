@@ -25,6 +25,15 @@ from agent.i18n import t
 logger = logging.getLogger("gateway.run")
 
 
+# A kanban subscription whose adapter has been ABSENT (profile/platform removed
+# from config, not a transient disconnect) for this many CONSECUTIVE notifier
+# ticks is aged out. High enough that a normal deploy/restart window (adapters
+# briefly unwired) never trips it — an absent adapter that reconnects resets the
+# streak and the pending event delivers when it returns. Module-level so tests
+# can patch it down. See the adapter-None path in _kanban_notifier_watcher.
+MAX_ADAPTER_ABSENT_TICKS = 60
+
+
 def _resolve_auto_decompose_settings(
     load_config: Callable[[], Any],
 ) -> "tuple[bool, int]":
@@ -186,6 +195,13 @@ class GatewayKanbanWatchersMixin:
             self, "_kanban_sub_fail_counts", {}
         )
         self._kanban_sub_fail_counts = sub_fail_counts
+        # Per-subscription consecutive-absent-tick counter (see
+        # MAX_ADAPTER_ABSENT_TICKS). Read the threshold from the module global
+        # each tick so tests can patch it down.
+        sub_absent_counts: dict[tuple, int] = getattr(
+            self, "_kanban_sub_absent_counts", {}
+        )
+        self._kanban_sub_absent_counts = sub_absent_counts
         notifier_profile = getattr(self, "_kanban_notifier_profile", None)
         if not notifier_profile:
             notifier_profile = self._active_profile_name()
@@ -320,11 +336,34 @@ class GatewayKanbanWatchersMixin:
                     # wrong bot (the cross-profile mis-delivery this whole change
                     # exists to fix). The helper returns None only when the profile
                     # (or default) genuinely has no adapter for the platform.
+                    sub_key = (
+                        sub["task_id"], sub["platform"],
+                        sub["chat_id"], sub.get("thread_id") or "",
+                    )
                     adapter = self._authorization_adapter(plat, sub_profile or None)
                     if adapter is None:
+                        # Adapter absent: usually a transient disconnect (deploy
+                        # restart) that will reconnect, so rewind and retry. But
+                        # a permanently-removed profile/platform never comes back
+                        # and would re-claim + rewind SQLite work every tick
+                        # forever — so after a long run of CONSECUTIVE absent
+                        # ticks (reset the moment the adapter returns), age the
+                        # subscription out. The threshold is high enough that a
+                        # normal restart window never trips it.
+                        absent = sub_absent_counts.get(sub_key, 0) + 1
+                        sub_absent_counts[sub_key] = absent
+                        if absent >= MAX_ADAPTER_ABSENT_TICKS:
+                            logger.info(
+                                "kanban notifier: adapter %s absent for %d consecutive "
+                                "ticks; dropping stale subscription for %s",
+                                platform_str, absent, sub["task_id"],
+                            )
+                            await asyncio.to_thread(self._kanban_unsub, sub, board_slug)
+                            sub_absent_counts.pop(sub_key, None)
+                            continue
                         logger.debug(
-                            "kanban notifier: adapter %s disconnected before delivery for %s; rewinding claim",
-                            platform_str, sub["task_id"],
+                            "kanban notifier: adapter %s disconnected before delivery for %s; rewinding claim (absent %d/%d)",
+                            platform_str, sub["task_id"], absent, MAX_ADAPTER_ABSENT_TICKS,
                         )
                         await asyncio.to_thread(
                             self._kanban_rewind,
@@ -334,8 +373,18 @@ class GatewayKanbanWatchersMixin:
                             board_slug,
                         )
                         continue
+                    # Adapter is present again — clear any absent streak.
+                    sub_absent_counts.pop(sub_key, None)
                     title = (task.title if task else sub["task_id"])[:120]
                     board_tag = f"[{board_slug}] " if board_slug else ""
+                    # Events are claimed in id-ascending order and the cursor was
+                    # already advanced past ALL of them at claim time. Track the
+                    # id of the last event we actually delivered so that a
+                    # mid-batch send failure rewinds only to THERE — not to
+                    # before the whole batch — otherwise already-delivered events
+                    # in the same batch get re-sent on the next tick (duplicate
+                    # pings). Starts at old_cursor: nothing delivered yet.
+                    last_delivered_id = int(d.get("old_cursor", 0))
                     for ev in d["events"]:
                         kind = ev.kind
                         # Identity prefix: attribute terminal pings to the
@@ -404,14 +453,15 @@ class GatewayKanbanWatchersMixin:
                             # archive needs no user ping, and unblocked is an
                             # internal transition. They are also excluded from
                             # _WAKE_KINDS below, so they never wake the creator.
+                            # Still count them as passed so a later event's
+                            # failure doesn't rewind the cursor back over them.
+                            last_delivered_id = ev.id
                             continue
                         metadata: dict[str, Any] = {}
                         if sub.get("thread_id"):
                             metadata["thread_id"] = sub["thread_id"]
-                        sub_key = (
-                            sub["task_id"], sub["platform"],
-                            sub["chat_id"], sub.get("thread_id") or "",
-                        )
+                        # sub_key already bound above (per-subscription, reused
+                        # for both the absent-tick and send-failure counters).
                         try:
                             await adapter.send(
                                 sub["chat_id"], msg, metadata=metadata,
@@ -445,6 +495,9 @@ class GatewayKanbanWatchersMixin:
                                     )
                             # Reset the failure counter on success.
                             sub_fail_counts.pop(sub_key, None)
+                            # Record progress so a later failure in this batch
+                            # rewinds only to here, not before the batch.
+                            last_delivered_id = ev.id
                         except Exception as exc:
                             fails = sub_fail_counts.get(sub_key, 0) + 1
                             sub_fail_counts[sub_key] = fails
@@ -463,11 +516,16 @@ class GatewayKanbanWatchersMixin:
                                 await asyncio.to_thread(self._kanban_unsub, sub, board_slug)
                                 sub_fail_counts.pop(sub_key, None)
                             else:
+                                # Rewind only to the last event we actually
+                                # delivered (>= old_cursor), so previously-sent
+                                # events in this same batch are not re-delivered
+                                # while the failed event and everything after it
+                                # stay unclaimed for a later retry.
                                 await asyncio.to_thread(
                                     self._kanban_rewind,
                                     sub,
                                     d["cursor"],
-                                    d.get("old_cursor", 0),
+                                    last_delivered_id,
                                     board_slug,
                                 )
                             # Rewind the pre-send claim on transient failure so
@@ -932,7 +990,19 @@ class GatewayKanbanWatchersMixin:
         # Initial delay so the gateway finishes wiring adapters before the
         # dispatcher spawns workers (those workers may hit gateway notify
         # subscriptions etc.). Matches the notifier watcher's delay.
-        await asyncio.sleep(5)
+        #
+        # This is the one cancellation point between acquiring the singleton
+        # lock (above) and the main loop (which has its own CancelledError
+        # release). If stop() cancels the task DURING this sleep, the
+        # CancelledError would propagate past both release sites and leak the
+        # flock handle — wedging any later in-process dispatcher restart on a
+        # "contended" lock until the process fully exits. Release here too.
+        try:
+            await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            _release_singleton_lock(self._kanban_dispatcher_lock_handle)
+            self._kanban_dispatcher_lock_handle = None
+            raise
 
         # Health telemetry mirrored from `_cmd_daemon`: warn when ready
         # queue is non-empty but spawns are 0 for N consecutive ticks —
@@ -1153,59 +1223,54 @@ class GatewayKanbanWatchersMixin:
                 slug = b.get("slug") or _kb.DEFAULT_BOARD
                 if attempted >= auto_decompose_per_tick:
                     break
-                # Pin this board for the duration of the call — same
-                # pattern as the dashboard specify endpoint. The
-                # decomposer module connects with no board kwarg and
-                # relies on the env var.
-                prev_env = os.environ.get("HERCULES_KANBAN_BOARD")
+                # Select this board explicitly via the board kwarg instead of
+                # mutating the process-global HERCULES_KANBAN_BOARD env var. This
+                # tick runs on a worker thread (asyncio.to_thread) while the event
+                # loop is live; a global env mutation would bleed into any
+                # concurrent env-resolved kanban access in the same process
+                # (dashboard reads, terminal claim_task, message-triggered reads),
+                # making them open the WRONG board's DB for the decompose window.
                 try:
-                    os.environ["HERCULES_KANBAN_BOARD"] = slug
+                    triage_ids = _decomp.list_triage_ids(board=slug)
+                except Exception as exc:
+                    logger.debug(
+                        "kanban auto-decompose: list_triage_ids failed on board %s (%s)",
+                        slug, exc,
+                    )
+                    triage_ids = []
+                for tid in triage_ids:
+                    if attempted >= auto_decompose_per_tick:
+                        break
+                    attempted += 1
                     try:
-                        triage_ids = _decomp.list_triage_ids()
-                    except Exception as exc:
-                        logger.debug(
-                            "kanban auto-decompose: list_triage_ids failed on board %s (%s)",
-                            slug, exc,
+                        outcome = _decomp.decompose_task(
+                            tid, author="auto-decomposer", board=slug,
                         )
-                        triage_ids = []
-                    for tid in triage_ids:
-                        if attempted >= auto_decompose_per_tick:
-                            break
-                        attempted += 1
-                        try:
-                            outcome = _decomp.decompose_task(
-                                tid, author="auto-decomposer",
+                    except Exception:
+                        logger.exception(
+                            "kanban auto-decompose: decompose_task crashed on %s",
+                            tid,
+                        )
+                        continue
+                    if outcome.ok:
+                        successes += 1
+                        if outcome.fanout and outcome.child_ids:
+                            logger.info(
+                                "kanban auto-decompose [%s]: %s → %d children",
+                                slug, tid, len(outcome.child_ids),
                             )
-                        except Exception:
-                            logger.exception(
-                                "kanban auto-decompose: decompose_task crashed on %s",
-                                tid,
-                            )
-                            continue
-                        if outcome.ok:
-                            successes += 1
-                            if outcome.fanout and outcome.child_ids:
-                                logger.info(
-                                    "kanban auto-decompose [%s]: %s → %d children",
-                                    slug, tid, len(outcome.child_ids),
-                                )
-                            else:
-                                logger.info(
-                                    "kanban auto-decompose [%s]: %s → single task (no fanout)",
-                                    slug, tid,
-                                )
                         else:
-                            # Common no-op reasons (no aux client configured) shouldn't
-                            # spam logs every tick. Log at debug.
-                            logger.debug(
-                                "kanban auto-decompose [%s]: %s skipped: %s",
-                                slug, tid, outcome.reason,
+                            logger.info(
+                                "kanban auto-decompose [%s]: %s → single task (no fanout)",
+                                slug, tid,
                             )
-                finally:
-                    if prev_env is None:
-                        os.environ.pop("HERCULES_KANBAN_BOARD", None)
                     else:
-                        os.environ["HERCULES_KANBAN_BOARD"] = prev_env
+                        # Common no-op reasons (no aux client configured) shouldn't
+                        # spam logs every tick. Log at debug.
+                        logger.debug(
+                            "kanban auto-decompose [%s]: %s skipped: %s",
+                            slug, tid, outcome.reason,
+                        )
             return successes
 
         logger.info(

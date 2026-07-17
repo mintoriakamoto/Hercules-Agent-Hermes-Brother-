@@ -35,8 +35,19 @@ class FakeClient:
         self.error_responses: list[tuple[Any, int, str]] = []
         self._initialized = False
         self._closed = False
+        # "Live" queues: what take_notification / take_server_request read
+        # RIGHT NOW. In the real client, codex only streams a turn's events
+        # AFTER turn/start, so these start empty and get filled by turn/start
+        # (see request()). Direct seeding of leftovers is via seed_live_*().
         self._notifications: list[dict] = []
         self._server_requests: list[dict] = []
+        # Staged queues: events the test declared with queue_notification /
+        # queue_server_request. They model "what codex will stream for the next
+        # turn" and go live only when turn/start (or thread/compact/start) is
+        # sent — so a drain() BEFORE turn/start never wipes them, matching the
+        # real ordering (drain leftovers → turn/start → new events stream).
+        self._staged_notifications: list[dict] = []
+        self._staged_server_requests: list[dict] = []
         self._request_handler = None  # Optional[Callable[[str, dict], dict]]
 
     # API matching CodexAppServerClient
@@ -47,6 +58,13 @@ class FakeClient:
 
     def request(self, method: str, params: Optional[dict] = None, timeout: float = 30.0):
         self.requests.append((method, params or {}))
+        # A turn boundary: the staged events now "stream" into the live queues,
+        # after any drain() the session performed just before this call.
+        if method in ("turn/start", "thread/compact/start"):
+            self._notifications.extend(self._staged_notifications)
+            self._staged_notifications = []
+            self._server_requests.extend(self._staged_server_requests)
+            self._staged_server_requests = []
         if self._request_handler is not None:
             return self._request_handler(method, params or {})
         # Sensible defaults for protocol methods used by the session
@@ -82,6 +100,13 @@ class FakeClient:
             return self._server_requests.pop(0)
         return None
 
+    def drain(self) -> int:
+        """Match CodexAppServerClient.drain: discard queued messages."""
+        n = len(self._notifications) + len(self._server_requests)
+        self._notifications.clear()
+        self._server_requests.clear()
+        return n
+
     def close(self):
         self._closed = True
 
@@ -95,9 +120,19 @@ class FakeClient:
 
     # Test helpers
     def queue_notification(self, method: str, **params):
-        self._notifications.append({"method": method, "params": params})
+        # Staged: goes live on the next turn/start (models codex streaming a
+        # turn's events only after the turn is started).
+        self._staged_notifications.append({"method": method, "params": params})
 
     def queue_server_request(self, method: str, request_id: Any = "srv-1", **params):
+        self._staged_server_requests.append({"id": request_id, "method": method, "params": params})
+
+    def seed_live_notification(self, method: str, **params):
+        """Inject a notification directly into the LIVE queue, as if left over
+        from a prior turn (present before this turn's turn/start / drain)."""
+        self._notifications.append({"method": method, "params": params})
+
+    def seed_live_server_request(self, method: str, request_id: Any = "srv-stale", **params):
         self._server_requests.append({"id": request_id, "method": method, "params": params})
 
     def set_stderr_tail(self, lines):
@@ -258,6 +293,47 @@ class TestRunTurn:
         assert isinstance(text, str)
         assert "[Image attached at: /tmp/a.png]" in text
         assert "[image attached]" in text
+
+    def test_stale_queued_notifications_do_not_bleed_into_next_turn(self):
+        """Regression: a prior turn that exited without retiring the session can
+        leave trailing notifications queued on the reused client. The next
+        turn must drain them before its projector reads, or the previous
+        turn's content gets grafted into this turn's transcript / a stale
+        turn/completed exits the turn immediately with the wrong text."""
+        client = FakeClient()
+        # Simulate turn A's leftovers that codex flushed AFTER turn A stopped
+        # reading (a trailing agentMessage + a stale terminal turn/completed).
+        # These are present in the LIVE queue before turn B's turn/start.
+        client.seed_live_notification(
+            "item/completed",
+            item={"type": "agentMessage", "id": "stale", "text": "TURN A LEFTOVER"},
+            threadId="t", turnId="tuA",
+        )
+        client.seed_live_notification(
+            "turn/completed",
+            threadId="t",
+            turn={"id": "tuA", "status": "completed", "error": None},
+        )
+        # Turn B's own, correct events (stream in on turn/start, after drain).
+        client.queue_notification(
+            "item/completed",
+            item={"type": "agentMessage", "id": "m1", "text": "turn B answer"},
+            threadId="t", turnId="tuB",
+        )
+        client.queue_notification(
+            "turn/completed",
+            threadId="t",
+            turn={"id": "tuB", "status": "completed", "error": None},
+        )
+        s = make_session(client)
+        r = s.run_turn("turn B question", turn_timeout=2.0)
+        # Without the drain, the stale turn/completed would end the turn with
+        # "TURN A LEFTOVER"; with it, only turn B's real answer survives.
+        assert r.final_text == "turn B answer"
+        assert "TURN A LEFTOVER" not in (r.final_text or "")
+        assert not any(
+            m.get("content") == "TURN A LEFTOVER" for m in r.projected_messages
+        )
 
     def test_tool_iteration_counter_ticks(self):
         client = FakeClient()
