@@ -783,6 +783,16 @@ class ContextCompressor(ContextEngine):
         self.last_compression_rough_tokens = 0
         self.last_rough_tokens_when_real_prompt_fit = 0
         self.awaiting_real_usage_after_compression = False
+        # Also reset the base per-session counters that on_session_reset() clears
+        # via super() but this method (which does NOT call super) previously
+        # omitted: a leaked compression_count makes the next session skip
+        # first-N protection on its first compaction, and a leaked
+        # last_prompt_tokens can fire a spurious compression on an almost-empty
+        # new session before it has any real usage.
+        self.compression_count = 0
+        self.last_prompt_tokens = 0
+        self.last_completion_tokens = 0
+        self.last_total_tokens = 0
 
     def bind_session_state(self, session_db: Any = None, session_id: str = "") -> None:
         """Bind the current session row so durable cooldowns can round-trip."""

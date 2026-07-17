@@ -319,6 +319,28 @@ class TestSearch:
         assert result.total_count == 0
         assert len(result.matches) == 0
 
+    def test_content_search_flags_truncation_on_overflow(self, ops, tmp_path):
+        # 20 matching lines, page of 5 → the result MUST be flagged truncated.
+        # Regression: the no-context fetch limit used to equal offset+limit, so
+        # `total > offset+limit` could never fire and overflow was silently
+        # reported as complete — the agent would never paginate.
+        (tmp_path / "many.txt").write_text(
+            "\n".join(f"MATCHME_UNIQUE line {i}" for i in range(20)) + "\n"
+        )
+        result = ops.search("MATCHME_UNIQUE", str(tmp_path), target="content", limit=5)
+        assert result.error is None
+        assert len(result.matches) == 5
+        assert result.truncated is True
+
+    def test_content_search_no_false_truncation_when_all_fit(self, ops, tmp_path):
+        (tmp_path / "few.txt").write_text(
+            "\n".join(f"MATCHME_UNIQUE line {i}" for i in range(3)) + "\n"
+        )
+        result = ops.search("MATCHME_UNIQUE", str(tmp_path), target="content", limit=5)
+        assert result.error is None
+        assert len(result.matches) == 3
+        assert result.truncated is False
+
     def test_file_search_finds_py_files(self, ops, populated_dir):
         result = ops.search("*.py", str(populated_dir), target="files")
         assert result.error is None

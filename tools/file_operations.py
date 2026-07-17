@@ -2283,8 +2283,13 @@ class ShellFileOperations(FileOperations):
         
         # Fetch extra rows so we can report the true total before slicing.
         # For context mode, rg emits separator lines ("--") between groups,
-        # so we grab generously and filter in Python.
-        fetch_limit = limit + offset + 200 if context > 0 else limit + offset
+        # so we grab generously and filter in Python. In no-context mode we
+        # still fetch ONE past the page (offset+limit+1): without it `head`
+        # caps output at exactly offset+limit, `total` can never exceed
+        # offset+limit, and the `truncated` flag below never fires on real
+        # overflow — silently telling the agent it saw every match when it
+        # didn't. The +1 makes an overflowing search detectable.
+        fetch_limit = limit + offset + (200 if context > 0 else 1)
         cmd_parts.extend(["|", "head", "-n", str(fetch_limit)])
         
         # `set -o pipefail` so rg's exit status propagates through `| head`.
@@ -2337,10 +2342,13 @@ class ShellFileOperations(FileOperations):
             return SearchResult(
                 counts=counts,
                 total_count=sum(counts.values()),
-                truncated=bool(limit_reason),
+                # `head` caps the number of per-file count lines at fetch_limit,
+                # so more matching files than that are silently dropped from the
+                # totals — flag it rather than claim a complete count.
+                truncated=len(counts) >= fetch_limit or bool(limit_reason),
                 limit_reason=limit_reason,
             )
-        
+
         else:
             # Parse content matches and context lines.
             # rg match lines:   "file:lineno:content"  (colon separator)
@@ -2412,7 +2420,9 @@ class ShellFileOperations(FileOperations):
         cmd_parts.append(self._escape_shell_arg(path))
         
         # Fetch generously so we can compute total before slicing
-        fetch_limit = limit + offset + (200 if context > 0 else 0)
+        # +1 past the page in no-context mode so real overflow is detectable by
+        # the `total > offset + limit` check below (see the rg path above).
+        fetch_limit = limit + offset + (200 if context > 0 else 1)
         cmd_parts.extend(["|", "head", "-n", str(fetch_limit)])
         
         # `set -o pipefail` so grep's exit status propagates through `| head`
@@ -2463,7 +2473,9 @@ class ShellFileOperations(FileOperations):
             return SearchResult(
                 counts=counts,
                 total_count=sum(counts.values()),
-                truncated=bool(limit_reason),
+                # See the rg count path: head caps per-file count lines, so flag
+                # truncation when the file count fills the fetch window.
+                truncated=len(counts) >= fetch_limit or bool(limit_reason),
                 limit_reason=limit_reason,
             )
         
