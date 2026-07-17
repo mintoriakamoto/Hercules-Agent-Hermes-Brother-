@@ -272,7 +272,7 @@ class TestGitHubCommentDelivery:
     @pytest.mark.asyncio
     async def test_github_comment_delivery(self):
         """When deliver='github_comment', the adapter invokes
-        ``gh pr comment`` via subprocess.run (mocked)."""
+        ``gh pr comment`` via an async subprocess (mocked)."""
         routes = {
             "pr-bot": {
                 "secret": _INSECURE_NO_AUTH,
@@ -308,30 +308,30 @@ class TestGitHubCommentDelivery:
         assert delivery["deliver_extra"]["repo"] == "org/repo"
         assert delivery["deliver_extra"]["pr_number"] == "42"
 
-        # Mock subprocess.run and call send()
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "Comment posted"
-        mock_result.stderr = ""
+        # The gh call runs as an ASYNC subprocess (asyncio.create_subprocess_exec)
+        # so it never blocks the gateway event loop — mock that, not the old
+        # blocking subprocess.run.
+        class _FakeProc:
+            returncode = 0
+
+            async def communicate(self):
+                return (b"Comment posted", b"")
 
         with patch(
-            "gateway.platforms.webhook.subprocess.run",
-            return_value=mock_result,
-        ) as mock_run:
+            "gateway.platforms.webhook.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=_FakeProc()),
+        ) as mock_exec:
             result = await adapter.send(
                 chat_id, "LGTM! The code looks great."
             )
 
         assert result.success is True
-        mock_run.assert_called_once_with(
-            [
-                "gh", "pr", "comment", "42",
-                "--repo", "org/repo",
-                "--body", "LGTM! The code looks great.",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
+        mock_exec.assert_awaited_once_with(
+            "gh", "pr", "comment", "42",
+            "--repo", "org/repo",
+            "--body", "LGTM! The code looks great.",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         # Delivery info is retained after send() so interim status messages
         # don't strand the final response (TTL-based cleanup happens on POST).
