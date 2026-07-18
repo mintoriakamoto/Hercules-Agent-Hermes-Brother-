@@ -10,6 +10,7 @@ executed end-to-end before this guide was written.
 **Contents**
 
 - [Requirements](#requirements)
+- [Prebuilt packages](#prebuilt-packages)
 - [Quick Start — install from this repository (verified)](#quick-start--install-from-this-repository-verified)
 - [Option A: guided setup script](#option-a-guided-setup-script-setup-herculessh)
 - [Option B: manual install with uv](#option-b-manual-install-with-uv)
@@ -41,6 +42,22 @@ executed end-to-end before this guide was written.
 Supported platforms: Linux, macOS, WSL2, native Windows (PowerShell), and
 Android via Termux. Nix/NixOS is best-effort (Tier 2 — see
 `website/docs/getting-started/nix-setup.md`).
+
+---
+
+## Prebuilt packages
+
+Every release on the [Releases page](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/releases)
+ships downloadable artifacts: the Python wheel and sdist (with the web
+dashboard, TUI, and install scripts bundled in), `SHA256SUMS.txt` checksums,
+and Linux desktop installers (AppImage/deb/rpm). Multi-arch Docker images
+land on [GHCR](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/pkgs/container/hercules-agent)
+with every push to `main`.
+
+```bash
+# Install the release wheel directly (fully bundled build):
+pip install https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/releases/latest/download/hercules_agent-1.0.0-py3-none-any.whl
+```
 
 ---
 
@@ -271,9 +288,20 @@ WSL2 users: follow the Linux instructions instead; the install lands under
 
 ## Docker / Docker Compose
 
-The repo ships a `Dockerfile` (Debian 13 base, s6-overlay supervision, Node 22,
-Playwright) and a `docker-compose.yml` that runs the messaging gateway with
-`~/.hercules` bind-mounted for persistent data:
+Prebuilt multi-arch images (amd64 + arm64) are published to GHCR on every
+push to `main`:
+
+```bash
+docker pull ghcr.io/mintoriakamoto/hercules-agent:latest
+```
+
+(If the pull is denied, the package may still be set to private — the
+repository owner can make it public in the GHCR package settings.)
+
+To build locally instead: the repo ships a `Dockerfile` (Debian 13 base,
+s6-overlay supervision, Node 22, Playwright) and a `docker-compose.yml` that
+runs the messaging gateway with `~/.hercules` bind-mounted for persistent
+data:
 
 ```bash
 git clone https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git

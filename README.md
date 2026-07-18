@@ -4,7 +4,7 @@
 
 # Hercules Agent ☤
 <p align="center">
-  <a href="https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/">Hercules Agent</a> | <a href="https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/">Hercules Desktop</a>
+  <a href="https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/">Hercules Agent</a> | <a href="https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/releases/latest">Hercules Desktop</a>
 </p>
 <p align="center">
   <a href="website/docs/"><img src="https://img.shields.io/badge/Docs-website%2Fdocs-FFD700?style=for-the-badge" alt="Documentation"></a>
@@ -33,6 +33,8 @@ Use any model you want — [OpenRouter](https://openrouter.ai), OpenAI, Anthropi
 ## Quick Install
 
 > 📦 **Full installation guide:** [INSTALL.md](INSTALL.md) covers every supported path — verified from-source install of this repository (uv, pip, `setup-hercules.sh`), Termux, native Windows, Docker, Nix, and the optional-extras reference.
+>
+> **Prebuilt packages:** the [latest release](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/releases/latest) ships the Python wheel/sdist, checksums, and Linux desktop installers (AppImage/deb/rpm); multi-arch Docker images are on [GHCR](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/pkgs/container/hercules-agent).
 
 ### Linux, macOS, WSL2, Termux
 

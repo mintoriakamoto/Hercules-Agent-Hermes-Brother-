@@ -2,7 +2,7 @@
   "name": "hercules",
   "productName": "Hercules",
   "private": true,
-  "version": "0.17.0",
+  "version": "1.0.0",
   "description": "Native desktop shell for Hercules Agent.",
   "author": "Nous Research",
   "homepage": "https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-",
