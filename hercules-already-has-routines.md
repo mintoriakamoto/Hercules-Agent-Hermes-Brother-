@@ -127,7 +127,7 @@ A nightly backlog triage on Sonnet costs roughly $0.02-0.05. A monitoring check 
 Hercules Agent is open source and free. The automation infrastructure — cron scheduler, webhook platform, skill system, multi-platform delivery — is built in.
 
 ```bash
-curl -fsSL https://hercules-agent.nousresearch.com/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/main/scripts/install.sh | bash
 hercules setup
 ```
 
@@ -149,7 +149,7 @@ hercules webhook subscribe pr-review \
   --deliver github_comment
 ```
 
-Full automation blueprints gallery: [hercules-agent.nousresearch.com/docs/reference/automation-blueprints-catalog](https://hercules-agent.nousresearch.com/docs/reference/automation-blueprints-catalog)
+Full automation blueprints gallery: [hercules-agent.nousresearch.com/docs/reference/automation-blueprints-catalog](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/blob/main/website/docs/reference/automation-blueprints-catalog)
 
 Documentation: [hercules-agent.nousresearch.com](https://hercules-agent.nousresearch.com)
 
@@ -157,4 +157,4 @@ GitHub: [github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-](https://githu
 
 ---
 
-*Hercules Agent is built by [Nous Research](https://nousresearch.com). Open source, model-agnostic, runs on your infrastructure.*
+*Hercules Agent is an independent project derived from work by [Nous Research](https://nousresearch.com) (MIT). Open source, model-agnostic, runs on your infrastructure.*

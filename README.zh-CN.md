@@ -86,7 +86,7 @@ Hercules 有两种入口：用 `hercules` 启动终端 UI，或运行网关从 T
 | 中断当前工作 | `Ctrl+C` 或发送新消息 | `/stop` 或发送新消息 |
 | 平台特定状态 | `/platforms` | `/status`、`/sethome` |
 
-完整命令列表请参阅 [CLI 指南](website/docs/user-guide/cli.md) 和 [消息网关指南](website/docs/user-guide/messaging.md)。
+完整命令列表请参阅 [CLI 指南](website/docs/user-guide/cli.md) 和 [消息网关指南](website/docs/user-guide/messaging/index.md)。
 
 ---
 
@@ -99,7 +99,7 @@ Hercules 有两种入口：用 `hercules` 启动终端 UI，或运行网关从 T
 | [快速开始](website/docs/getting-started/quickstart.md) | 安装 → 设置 → 2 分钟内开始首次对话 |
 | [CLI 使用](website/docs/user-guide/cli.md) | 命令、快捷键、人格、会话 |
 | [配置](website/docs/user-guide/configuration.md) | 配置文件、提供商、模型、所有选项 |
-| [消息网关](website/docs/user-guide/messaging.md) | Telegram、Discord、Slack、WhatsApp、Signal、Home Assistant |
+| [消息网关](website/docs/user-guide/messaging/index.md) | Telegram、Discord、Slack、WhatsApp、Signal、Home Assistant |
 | [安全](website/docs/user-guide/security.md) | 命令审批、DM 配对、容器隔离 |
 | [工具与工具集](website/docs/user-guide/features/tools.md) | 40+ 工具、工具集系统、终端后端 |
 | [技能系统](website/docs/user-guide/features/skills.md) | 过程记忆、技能中心、创建技能 |

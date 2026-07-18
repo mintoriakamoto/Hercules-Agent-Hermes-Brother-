@@ -11,7 +11,7 @@
 #
 services:
   gateway:
-    image: nousresearch/hercules-agent:latest
+    image: ghcr.io/mintoriakamoto/hercules-agent:latest
     container_name: hercules
     restart: unless-stopped
     volumes:
@@ -22,7 +22,7 @@ services:
     command: ["gateway", "run"]
 
   dashboard:
-    image: nousresearch/hercules-agent:latest
+    image: ghcr.io/mintoriakamoto/hercules-agent:latest
     container_name: hercules-dashboard
     restart: unless-stopped
     depends_on:

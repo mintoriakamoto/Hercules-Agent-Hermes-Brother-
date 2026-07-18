@@ -238,7 +238,7 @@ rm "$HOME/.hercules/hercules-agent/.hercules-bootstrap-complete"
 rm -rf "$HOME/.hercules/hercules-agent/venv"
 
 # Reset a stuck macOS microphone prompt
-tccutil reset Microphone com.nousresearch.hercules
+tccutil reset Microphone com.mintoriakamoto.hercules
 ```
 
 ### "Build desktop app" stuck on Electron download
