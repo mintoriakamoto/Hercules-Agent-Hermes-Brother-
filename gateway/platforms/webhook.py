@@ -1182,32 +1182,24 @@ class WebhookAdapter(BasePlatformAdapter):
                 success=False, error="Invalid repo format"
             )
 
+        # Run `gh` as an ASYNC subprocess. `gh pr comment` makes a network
+        # round-trip to GitHub; a synchronous subprocess.run here would block
+        # the entire gateway event loop (up to the 30s timeout) for every
+        # concurrent session — a real freeze on high-volume PR threads. The
+        # async spawn + wait_for keeps the loop free while gh runs.
         try:
-            result = subprocess.run(
-                [
-                    "gh",
-                    "pr",
-                    "comment",
-                    str(pr_int),
-                    "--repo",
-                    repo,
-                    "--body",
-                    content,
-                ],
-                capture_output=True,
-                text=True,
-                timeout=30,
+            proc = await asyncio.create_subprocess_exec(
+                "gh",
+                "pr",
+                "comment",
+                str(pr_int),
+                "--repo",
+                repo,
+                "--body",
+                content,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-            if result.returncode == 0:
-                logger.info(
-                    "[webhook] Posted comment on %s#%s", repo, pr_number
-                )
-                return SendResult(success=True)
-            else:
-                logger.error(
-                    "[webhook] gh pr comment failed: %s", result.stderr
-                )
-                return SendResult(success=False, error=result.stderr)
         except FileNotFoundError:
             logger.error(
                 "[webhook] 'gh' CLI not found — install GitHub CLI for "
@@ -1219,6 +1211,30 @@ class WebhookAdapter(BasePlatformAdapter):
         except Exception as e:
             logger.error("[webhook] github_comment delivery error: %s", e)
             return SendResult(success=False, error=str(e))
+
+        try:
+            stdout_b, stderr_b = await asyncio.wait_for(
+                proc.communicate(), timeout=30
+            )
+        except asyncio.TimeoutError:
+            # Don't leak the child: kill it and reap before returning.
+            try:
+                proc.kill()
+                await proc.wait()
+            except ProcessLookupError:
+                pass
+            logger.error("[webhook] gh pr comment timed out after 30s")
+            return SendResult(success=False, error="gh pr comment timed out")
+        except Exception as e:
+            logger.error("[webhook] github_comment delivery error: %s", e)
+            return SendResult(success=False, error=str(e))
+
+        if proc.returncode == 0:
+            logger.info("[webhook] Posted comment on %s#%s", repo, pr_number)
+            return SendResult(success=True)
+        stderr_text = (stderr_b or b"").decode("utf-8", "replace")
+        logger.error("[webhook] gh pr comment failed: %s", stderr_text)
+        return SendResult(success=False, error=stderr_text)
 
     async def _deliver_cross_platform(
         self, platform_name: str, content: str, delivery: dict

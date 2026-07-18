@@ -18999,6 +18999,10 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                         )
                     else:
                         entry.session_id = agent_session_id
+                        # NOTE: this runs inside the synchronous run_sync()
+                        # closure (executed off-loop in the ThreadPoolExecutor),
+                        # so these synchronous store writes do NOT block the
+                        # gateway event loop — no async offload needed here.
                         self.session_store._save()
                         self.session_store._record_gateway_session_peer(
                             agent_session_id,

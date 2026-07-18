@@ -469,3 +469,81 @@ class TestDirectDeliverUnit:
             )
             assert result.success is True
             mock_gh.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_github_comment_uses_async_subprocess_not_blocking(self):
+        """The gh invocation must run via asyncio.create_subprocess_exec (which
+        keeps the event loop free) — NOT a blocking subprocess.run that would
+        freeze the whole gateway for the gh network round-trip. This test fails
+        if the delivery reverts to the synchronous call.
+        """
+        adapter = _make_adapter({})
+
+        class _FakeProc:
+            returncode = 0
+
+            async def communicate(self):
+                return (b"", b"")
+
+        with patch(
+            "gateway.platforms.webhook.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=_FakeProc()),
+        ) as mock_exec, patch(
+            "gateway.platforms.webhook.subprocess.run",
+            side_effect=AssertionError("must not call blocking subprocess.run"),
+        ):
+            result = await adapter._deliver_github_comment(
+                "review body",
+                {"deliver_extra": {"repo": "org/r", "pr_number": "42"}},
+            )
+
+        assert result.success is True
+        mock_exec.assert_awaited_once()
+        # Args passed through correctly (validated pr int + repo).
+        call_args = mock_exec.await_args.args
+        assert call_args[:3] == ("gh", "pr", "comment")
+        assert "42" in call_args and "org/r" in call_args
+
+    @pytest.mark.asyncio
+    async def test_github_comment_rejects_bad_repo_and_pr(self):
+        adapter = _make_adapter({})
+        # Invalid pr_number → rejected before any subprocess.
+        r1 = await adapter._deliver_github_comment(
+            "x", {"deliver_extra": {"repo": "org/r", "pr_number": "not-a-number"}},
+        )
+        assert r1.success is False
+        # Invalid repo format (injection attempt) → rejected.
+        r2 = await adapter._deliver_github_comment(
+            "x", {"deliver_extra": {"repo": "org/r; rm -rf /", "pr_number": "1"}},
+        )
+        assert r2.success is False
+
+    @pytest.mark.asyncio
+    async def test_github_comment_timeout_kills_child_and_reports(self):
+        adapter = _make_adapter({})
+
+        class _HangingProc:
+            returncode = None
+            killed = False
+
+            async def communicate(self):
+                raise asyncio.TimeoutError()
+
+            def kill(self):
+                self.killed = True
+
+            async def wait(self):
+                return 0
+
+        proc = _HangingProc()
+        # wait_for re-raises the TimeoutError from communicate().
+        with patch(
+            "gateway.platforms.webhook.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=proc),
+        ):
+            result = await adapter._deliver_github_comment(
+                "x", {"deliver_extra": {"repo": "org/r", "pr_number": "1"}},
+            )
+        assert result.success is False
+        assert "timed out" in (result.error or "").lower()
+        assert proc.killed is True

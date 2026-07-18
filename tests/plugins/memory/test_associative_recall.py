@@ -107,6 +107,33 @@ def test_superseded_facts_are_not_spread(store):
     assert store.get_associations(a) == []
 
 
+def test_batched_fetch_skips_superseded_and_still_fills_limit(store):
+    """The batched (single IN-query) fact fetch must keep the exact per-row
+    semantics: walk edges in decayed-strength order, exclude superseded
+    partners, and still return up to `limit` surviving facts — a superseded
+    mid-rank associate must not truncate the result at fewer than `limit`.
+    """
+    hub = store.add_fact("Hub fact")
+    # Five associates with strictly decreasing strength.
+    ids = [store.add_fact(f"Associate {i}") for i in range(5)]
+    for rank, fid in enumerate(ids):
+        store.reinforce_association(hub, fid, delta=0.9 - rank * 0.1)
+
+    # Supersede the 2nd-strongest associate (rank index 1). The loop must skip
+    # it and continue collecting lower-ranked survivors.
+    replacement = store.add_fact("Replacement for associate 1")
+    store.supersede_fact(ids[1], replacement)
+
+    ranked = store.get_associations(hub, limit=3)
+    returned = [f["fact_id"] for f in ranked]
+    # Superseded id excluded; exactly `limit` survivors, in strength order.
+    assert ids[1] not in returned
+    assert returned == [ids[0], ids[2], ids[3]]
+    # Strength is attached and descending.
+    strengths = [f["strength"] for f in ranked]
+    assert strengths == sorted(strengths, reverse=True)
+
+
 # ---------------------------------------------------------------------------
 # Provider-level: learn via feedback, recall via spread
 # ---------------------------------------------------------------------------

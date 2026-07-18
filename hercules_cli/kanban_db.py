@@ -3317,22 +3317,63 @@ def recompute_ready(
             "SELECT id, status, consecutive_failures, max_retries "
             "FROM tasks WHERE status IN ('todo', 'blocked')"
         ).fetchall()
+        if not todo_rows:
+            return 0
+
+        # Batch the two per-task lookups that used to run once PER candidate
+        # (an N+1 executed every dispatcher tick) into two set-based queries.
+        # This is safe against in-loop promotions: promotion only moves a task
+        # todo/blocked -> ready, and 'ready' is non-terminal just like 'todo',
+        # so an earlier promotion can never flip a later task's parent to
+        # done/archived — the batched parent-status read matches what a
+        # per-task read during the loop would have seen.
+        all_ids = [r["id"] for r in todo_rows]
+        blocked_ids = [r["id"] for r in todo_rows if r["status"] == "blocked"]
+
+        # (1) Tasks with >=1 non-terminal parent are NOT parent-ready. Tasks
+        # with no parents don't appear here, so they're treated as ready
+        # (matches the old ``all([]) == True``).
+        _ph = ",".join("?" * len(all_ids))
+        pending_rows = conn.execute(
+            "SELECT l.child_id AS child_id, "
+            "SUM(CASE WHEN t.status NOT IN ('done','archived') THEN 1 ELSE 0 END) AS pending "
+            "FROM task_links l JOIN tasks t ON t.id = l.parent_id "
+            f"WHERE l.child_id IN ({_ph}) GROUP BY l.child_id",
+            all_ids,
+        ).fetchall()
+        has_pending_parent = {
+            r["child_id"] for r in pending_rows if int(r["pending"] or 0) > 0
+        }
+
+        # (2) Sticky-block state: a blocked task is sticky iff its most recent
+        # blocked/unblocked event is 'blocked' (mirrors ``_has_sticky_block``,
+        # including "no such event -> not sticky"). One grouped query for all
+        # blocked candidates instead of one query each.
+        sticky_blocked: set = set()
+        if blocked_ids:
+            _bph = ",".join("?" * len(blocked_ids))
+            sticky_rows = conn.execute(
+                "SELECT task_id, kind FROM task_events WHERE id IN ("
+                "  SELECT MAX(id) FROM task_events "
+                f"  WHERE task_id IN ({_bph}) AND kind IN ('blocked','unblocked') "
+                "  GROUP BY task_id"
+                ")",
+                blocked_ids,
+            ).fetchall()
+            sticky_blocked = {
+                r["task_id"] for r in sticky_rows if r["kind"] == "blocked"
+            }
+
         for row in todo_rows:
             task_id = row["id"]
             cur_status = row["status"]
-            if cur_status == "blocked" and _has_sticky_block(conn, task_id):
+            if cur_status == "blocked" and task_id in sticky_blocked:
                 # Worker / operator asked for human review — do not
                 # silently auto-recover.  ``unblock_task`` is the only
                 # legitimate exit (it emits ``"unblocked"`` which flips
                 # this predicate back).
                 continue
-            parents = conn.execute(
-                "SELECT t.status FROM tasks t "
-                "JOIN task_links l ON l.parent_id = t.id "
-                "WHERE l.child_id = ?",
-                (task_id,),
-            ).fetchall()
-            if all(p["status"] in ("done", "archived") for p in parents):
+            if task_id not in has_pending_parent:
                 if cur_status == "blocked":
                     # Don't auto-recover tasks that have hit the
                     # circuit-breaker failure limit.  Without this

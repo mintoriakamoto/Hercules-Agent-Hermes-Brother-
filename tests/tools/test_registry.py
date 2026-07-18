@@ -384,6 +384,42 @@ class TestBuiltinDiscovery:
         assert imported == ["tools.alpha"]
         mock_import.assert_called_once_with("tools.alpha")
 
+    def test_substring_prefilter_preserves_exact_top_level_semantics(self, tmp_path):
+        """The fast substring prefilter must not change which modules count as
+        self-registering. Only a genuine TOP-LEVEL registry.register(...) call
+        registers; the same text inside a function, a comment, or a string
+        literal must NOT — even though it passes the cheap prefilter, the AST
+        check rejects it. And a file lacking the substring is rejected outright.
+        """
+        tools_dir = tmp_path / "tools"
+        tools_dir.mkdir()
+        # Genuine top-level registration.
+        (tools_dir / "real.py").write_text(
+            "from tools.registry import registry\n"
+            "registry.register(name='real', toolset='x', schema={}, handler=lambda *_a, **_k: '{}')\n",
+            encoding="utf-8",
+        )
+        # Substring present but only INSIDE a function — must be excluded.
+        (tools_dir / "nested.py").write_text(
+            "from tools.registry import registry\n"
+            "def _setup():\n"
+            "    registry.register(name='nested', toolset='x', schema={}, handler=lambda *_a, **_k: '{}')\n",
+            encoding="utf-8",
+        )
+        # Substring present but only in a comment/string — must be excluded.
+        (tools_dir / "commented.py").write_text(
+            "# registry.register(name='fake') -- not a real call\n"
+            "DOC = 'call registry.register( like this'\n",
+            encoding="utf-8",
+        )
+        # No substring at all — rejected by the prefilter.
+        (tools_dir / "plain.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+        assert _module_registers_tools(tools_dir / "real.py") is True
+        assert _module_registers_tools(tools_dir / "nested.py") is False
+        assert _module_registers_tools(tools_dir / "commented.py") is False
+        assert _module_registers_tools(tools_dir / "plain.py") is False
+
     def test_skips_mcp_tool_even_if_it_registers(self, tmp_path):
         tools_dir = tmp_path / "tools"
         tools_dir.mkdir()
