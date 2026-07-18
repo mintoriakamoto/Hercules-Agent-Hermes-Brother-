@@ -18,6 +18,8 @@ permissions:
 
 jobs:
   check-freshness:
+    # Intentionally disabled on this repository: the freshness check probes
+    # a live deployed docs site, which this repo does not have.
     if: github.repository == 'NousResearch/hercules-agent'
     runs-on: ubuntu-latest
     steps:

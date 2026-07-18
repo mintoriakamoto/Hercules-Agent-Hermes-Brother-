@@ -58,11 +58,10 @@ def test_dashboard_slot_reports_up_when_enabled(
     built_image: str, container_name: str,
 ) -> None:
     """Symmetry: with HERCULES_DASHBOARD=1, s6-svstat reports the slot as up."""
-    # The default dashboard host is 0.0.0.0, which now engages the
-    # OAuth auth gate. Without a provider registered (no
-    # HERCULES_DASHBOARD_OAUTH_CLIENT_ID in this test env), start_server
-    # would fail closed and the slot would never come up. Pin the
-    # explicit insecure opt-in to keep this test focused on the s6
+    # The default dashboard host is 0.0.0.0, which engages the auth
+    # gate. Without a provider registered, start_server would fail
+    # closed and the slot would never come up. Register the bundled
+    # basic password provider to keep this test focused on the s6
     # supervision contract, not the auth gate.
     start_container(
         built_image, container_name,
@@ -264,34 +263,37 @@ except urllib.error.HTTPError as h:
     )
 
 
-def test_dashboard_oauth_gate_engages_on_non_loopback_bind(
+def test_dashboard_auth_gate_engages_on_non_loopback_bind(
     built_image: str, container_name: str,
 ) -> None:
     """The s6 dashboard run script must NOT auto-add ``--insecure`` when the
-    dashboard binds to ``0.0.0.0``. The OAuth auth gate engages on its own
-    when a ``DashboardAuthProvider`` is registered (the bundled nous
-    provider activates whenever ``HERCULES_DASHBOARD_OAUTH_CLIENT_ID`` is
-    set).
+    dashboard binds to ``0.0.0.0``. The auth gate engages on its own when a
+    ``DashboardAuthProvider`` is registered — here the bundled
+    ``dashboard_auth/basic`` password provider, which activates whenever
+    ``HERCULES_DASHBOARD_BASIC_AUTH_USERNAME``/``_PASSWORD`` are set.
+    (This test previously exercised the nous OAuth provider via
+    ``HERCULES_DASHBOARD_OAUTH_CLIENT_ID``; that provider was removed with
+    the Nous Portal, so with only that env set no provider registers,
+    ``start_server`` fails closed, and the dashboard never binds.)
 
-    Regression guard for the wildcard-subdomain rollout where every
-    portal-provisioned agent binds ``0.0.0.0`` and relies on the OAuth
-    gate to authenticate browser callers. Before this fix, the run script
-    flipped ``--insecure`` on for any non-loopback bind, which routed
-    ``start_server`` straight back into the legacy ``allow_public=True``
-    branch and disabled the gate every time.
+    Regression guard for the non-loopback rollout where agents bind
+    ``0.0.0.0`` and rely on the auth gate to authenticate browser callers.
+    Before this fix, the run script flipped ``--insecure`` on for any
+    non-loopback bind, which routed ``start_server`` straight back into the
+    legacy ``allow_public=True`` branch and disabled the gate every time.
 
     We verify two independent observable consequences of the gate being
     on:
 
     1. ``/api/auth/providers`` (publicly reachable through the gate so
-       the login page can bootstrap) returns 200 with ``nous`` in the
+       the login page can bootstrap) returns 200 with ``basic`` in the
        provider list — proves the bundled provider registered.
     2. ``/api/sessions`` (a gated route under both the legacy
-       ``_SESSION_TOKEN`` middleware and the OAuth gate) returns 401
-       to an unauthenticated caller — proves the OAuth gate is actively
+       ``_SESSION_TOKEN`` middleware and the auth gate) returns 401
+       to an unauthenticated caller — proves the gate is actively
        intercepting browser traffic. We deliberately probe a gated route
        here rather than ``/api/status``: status sits in the shared
-       ``PUBLIC_API_PATHS`` allowlist (portal liveness probe target) and
+       ``PUBLIC_API_PATHS`` allowlist (liveness probe target) and
        responds 200 without a cookie under both gates, so it cannot
        distinguish "gate on" from "gate off".
     """
@@ -299,7 +301,8 @@ def test_dashboard_oauth_gate_engages_on_non_loopback_bind(
         built_image, container_name,
         "HERCULES_DASHBOARD=1",
         "HERCULES_DASHBOARD_HOST=0.0.0.0",
-        "HERCULES_DASHBOARD_OAUTH_CLIENT_ID=agent:test-instance",
+        "HERCULES_DASHBOARD_BASIC_AUTH_USERNAME=admin",
+        "HERCULES_DASHBOARD_BASIC_AUTH_PASSWORD=test-dashboard-pw",
         cmd="sleep 120",
     )
 
@@ -311,9 +314,10 @@ def test_dashboard_oauth_gate_engages_on_non_loopback_bind(
     )
     payload = json.loads(body)
     provider_names = [p.get("name") for p in payload.get("providers", [])]
-    assert "nous" in provider_names, (
-        "Bundled dashboard_auth/nous provider should register when "
-        f"HERCULES_DASHBOARD_OAUTH_CLIENT_ID is set. Got: {payload!r}"
+    assert "basic" in provider_names, (
+        "Bundled dashboard_auth/basic provider should register when "
+        "HERCULES_DASHBOARD_BASIC_AUTH_USERNAME/_PASSWORD are set. "
+        f"Got: {payload!r}"
     )
 
     # (2) A gated route (``/api/sessions``) returns 401 to an

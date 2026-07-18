@@ -46,6 +46,9 @@ jobs:
         run: curl -X POST "${{ secrets.VERCEL_DEPLOY_HOOK }}"
 
   deploy-docs:
+    # Intentionally disabled on this repository: enabling GitHub Pages here
+    # first requires a Docusaurus baseUrl + absolute-link migration (project
+    # pages serve under /<repo>/, while the site is built for /docs/).
     if: github.repository == 'NousResearch/hercules-agent'
     runs-on: ubuntu-latest
     environment:
