@@ -88,7 +88,7 @@ Why these packages?
 
 ```bash
 git clone https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git
-cd hercules-agent
+cd Hercules-Agent-Hermes-Brother-
 ```
 
 ### 3. Create a virtual environment

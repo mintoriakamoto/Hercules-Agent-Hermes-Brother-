@@ -167,7 +167,7 @@ Inicio rápido para colaboradores — clona y comienza con `setup-hercules.sh`:
 
 ```bash
 git clone https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git
-cd hercules-agent
+cd Hercules-Agent-Hermes-Brother-
 ./setup-hercules.sh     # instala uv, crea venv, instala .[all], enlaza ~/.local/bin/hercules
 ./hercules              # detecta automáticamente el venv, no necesitas hacer `source` primero
 ```

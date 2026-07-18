@@ -70,7 +70,7 @@ The `default` package adds ~700 MB to the closure. If you only need messaging pl
 
 ```bash
 git clone https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git
-cd hercules-agent
+cd Hercules-Agent-Hermes-Brother-
 nix develop
 hercules setup
 ```
@@ -767,7 +767,7 @@ A build-time collision check prevents plugin packages from shadowing core hercul
 The flake provides a development shell with Python 3.12, uv, Node.js, and all runtime tools:
 
 ```bash
-cd hercules-agent
+cd Hercules-Agent-Hermes-Brother-
 nix develop
 
 # Shell provides:
@@ -784,7 +784,7 @@ hercules chat
 The included `.envrc` activates the dev shell automatically:
 
 ```bash
-cd hercules-agent
+cd Hercules-Agent-Hermes-Brother-
 direnv allow    # one-time
 # Subsequent entries are near-instant (stamp file skips dep install)
 ```

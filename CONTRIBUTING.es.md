@@ -82,7 +82,7 @@ Esto no es una barra de calidad — es una decisión de acoplamiento y mantenimi
 
 ```bash
 git clone https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git
-cd hercules-agent
+cd Hercules-Agent-Hermes-Brother-
 
 # Crear venv con Python 3.11
 uv venv venv --python 3.11
