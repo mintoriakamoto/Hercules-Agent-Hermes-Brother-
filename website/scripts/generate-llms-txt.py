@@ -9,8 +9,8 @@ Outputs:
                                     comments separating files.
 
 Both publish at:
-  https://hercules-agent.nousresearch.com/docs/llms.txt
-  https://hercules-agent.nousresearch.com/docs/llms-full.txt
+  https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/docs/llms.txt
+  https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/docs/llms-full.txt
 
 The `/docs/` prefix is not a mistake — Docusaurus serves `website/static/`
 at the `docs/` base path. Clients and IDE plugins that probe the classic
@@ -31,7 +31,7 @@ WEBSITE = SCRIPT_DIR.parent
 DOCS = WEBSITE / "docs"
 STATIC = WEBSITE / "static"
 
-SITE_BASE = "https://hercules-agent.nousresearch.com/docs"
+SITE_BASE = "https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/docs"
 
 # Curated sections for llms.txt — mirrors the product story, not the filesystem.
 # Each entry: (docs-relative path without .md, display title, optional short desc).
@@ -210,8 +210,8 @@ def emit_llms_index() -> str:
     )
     lines.append("")
     lines.append(
-        "Install: `curl -fsSL https://raw.githubusercontent.com/NousResearch/"
-        "hercules-agent/main/scripts/install.sh | bash`  "
+        "Install: `curl -fsSL https://raw.githubusercontent.com/mintoriakamoto/"
+        "Hercules-Agent-Hermes-Brother-/main/scripts/install.sh | bash`  "
         "(Linux, macOS, WSL2, Termux)"
     )
     lines.append("")
@@ -248,8 +248,8 @@ def emit_llms_full() -> str:
             "Started, Using Hercules, Features, Messaging, Integrations, Guides, "
             "Developer Guide, Reference, then everything else.\n"
         ),
-        "Canonical site: https://hercules-agent.nousresearch.com/docs\n",
-        "Short index: https://hercules-agent.nousresearch.com/docs/llms.txt\n",
+        "Canonical site: https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/docs\n",
+        "Short index: https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/docs/llms.txt\n",
         "\n---\n\n",
     ]
 

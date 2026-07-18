@@ -5,7 +5,7 @@
 # Uses uv for fast Python provisioning and package management.
 #
 # Usage:
-#   iex (irm https://hercules-agent.nousresearch.com/install.ps1)
+#   iex (irm https://raw.githubusercontent.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/main/scripts/install.ps1)
 #
 # Or download and run with options:
 #   .\install.ps1 -NoVenv -SkipSetup
@@ -136,8 +136,8 @@ foreach ($tmpVar in @('TEMP', 'TMP')) {
 # Configuration
 # ============================================================================
 
-$RepoUrlSsh = "git@github.com:NousResearch/hercules-agent.git"
-$RepoUrlHttps = "https://github.com/NousResearch/hercules-agent.git"
+$RepoUrlSsh = "git@github.com:mintoriakamoto/Hercules-Agent-Hermes-Brother-.git"
+$RepoUrlHttps = "https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git"
 $PythonVersion = "3.11"
 # Minor versions the installer accepts when the requested $PythonVersion isn't
 # available, in preference order.  uv discovers both uv-managed and system
@@ -1512,13 +1512,13 @@ function Install-Repository {
                 # for.  GitHub supports archive URLs for commits, tags, and
                 # branches; we honour Commit > Tag > Branch.
                 if ($Commit) {
-                    $zipUrl = "https://github.com/NousResearch/hercules-agent/archive/$Commit.zip"
+                    $zipUrl = "https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/archive/$Commit.zip"
                     $zipLabel = $Commit
                 } elseif ($Tag) {
-                    $zipUrl = "https://github.com/NousResearch/hercules-agent/archive/refs/tags/$Tag.zip"
+                    $zipUrl = "https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/archive/refs/tags/$Tag.zip"
                     $zipLabel = $Tag
                 } else {
-                    $zipUrl = "https://github.com/NousResearch/hercules-agent/archive/refs/heads/$Branch.zip"
+                    $zipUrl = "https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/archive/refs/heads/$Branch.zip"
                     $zipLabel = $Branch
                 }
                 $zipPath = "$env:TEMP\hercules-agent-$zipLabel.zip"
@@ -3557,7 +3557,7 @@ try {
     Write-Err "Installation failed: $_"
     Write-Host ""
     Write-Info "If the error is unclear, try downloading and running the script directly:"
-    Write-Host "  Invoke-WebRequest -Uri 'https://hercules-agent.nousresearch.com/install.ps1' -OutFile install.ps1" -ForegroundColor Yellow
+    Write-Host "  Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/main/scripts/install.ps1' -OutFile install.ps1" -ForegroundColor Yellow
     Write-Host "  .\install.ps1" -ForegroundColor Yellow
     Write-Host ""
 }

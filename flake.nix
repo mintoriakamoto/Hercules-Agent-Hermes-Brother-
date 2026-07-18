@@ -1,5 +1,5 @@
 {
-  description = "Hercules Agent - AI agent framework by Nous Research";
+  description = "Hercules Agent - self-improving AI agent framework";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

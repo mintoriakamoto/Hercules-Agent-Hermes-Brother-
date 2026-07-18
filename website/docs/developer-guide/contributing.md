@@ -49,7 +49,7 @@ development environment on the same layout the CLI, updater, lazy dependency
 installer, gateway, and docs assume.
 
 ```bash
-curl -fsSL https://hercules-agent.nousresearch.com/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/main/scripts/install.sh | bash
 cd "${HERCULES_HOME:-$HOME/.hercules}/hercules-agent"
 
 # Add dev/test extras on top of the standard install.

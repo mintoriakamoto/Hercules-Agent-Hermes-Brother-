@@ -45,7 +45,7 @@ Las habilidades incluidas (en `skills/`) se envían con cada instalación de Her
 
 Si tu habilidad es oficial y útil pero no universalmente necesaria (ej., una integración de servicio de pago, una dependencia pesada), ponla en **`optional-skills/`** — se envía con el repositorio pero no está activada por defecto. Los usuarios pueden descubrirla a través de `hercules skills browse` (etiquetada como "oficial") e instalarla con `hercules skills install` (sin advertencia de terceros, confianza integrada).
 
-Si tu habilidad es especializada, contribuida por la comunidad o de nicho, es mejor para un **Skills Hub** — súbela a un registro de habilidades y compártela en el [Discord de Nous Research](https://discord.gg/NousResearch). Los usuarios pueden instalarla con `hercules skills install`.
+Si tu habilidad es especializada, contribuida por la comunidad o de nicho, es mejor para un **Skills Hub** — súbela a un registro de habilidades y compártela en las [Discusiones](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/discussions) de este repositorio. Los usuarios pueden instalarla con `hercules skills install`.
 
 ---
 
@@ -194,7 +194,7 @@ hercules-agent/
 ├── skills/                   # Habilidades incluidas (copiadas a ~/.hercules/skills/ en la instalación)
 ├── optional-skills/          # Habilidades opcionales oficiales (descubribles vía hub, no activadas por defecto)
 ├── tests/                    # Suite de tests
-├── website/                  # Sitio de documentación (hercules-agent.nousresearch.com)
+├── website/                  # Sitio de documentación (fuente Docusaurus)
 │
 ├── cli-config.yaml.example   # Configuración de ejemplo (copiada a ~/.hercules/config.yaml)
 └── AGENTS.md                 # Guía de desarrollo para asistentes de codificación IA
@@ -591,7 +591,7 @@ test(tools): añadir tests unitarios para file_operations
 
 ## Comunidad
 
-- **Discord**: [discord.gg/NousResearch](https://discord.gg/NousResearch) — para preguntas, mostrar proyectos y compartir habilidades
+- **Discusiones**: [https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/discussions](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/discussions) — para preguntas, mostrar proyectos y compartir habilidades
 - **GitHub Discussions**: Para propuestas de diseño y discusiones de arquitectura
 - **Skills Hub**: Sube habilidades especializadas a un registro y compártelas con la comunidad
 

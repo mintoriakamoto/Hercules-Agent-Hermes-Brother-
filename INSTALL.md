@@ -172,38 +172,32 @@ backends lazy-install at first use via `tools/lazy_deps.py`.
 
 ---
 
-## Option D: hosted one-line installers
+## Option D: one-line installers
 
-The upstream project publishes one-line installers:
+The installer scripts live in this repository (`scripts/install.sh`,
+`scripts/install.ps1`) and clone **this** repository. They are served straight
+from GitHub — no third-party hosting involved:
 
 ```bash
 # Linux / macOS / WSL2 / Termux
-curl -fsSL https://hercules-agent.nousresearch.com/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/main/scripts/install.sh | bash
 ```
 
 ```powershell
 # Windows (native, PowerShell)
-iex (irm https://hercules-agent.nousresearch.com/install.ps1)
+iex (irm https://raw.githubusercontent.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/main/scripts/install.ps1)
 ```
 
-**Honest caveats about this path, so you can make an informed choice:**
-
-- These scripts are hosted on the upstream project's domain
-  (`hercules-agent.nousresearch.com`), and the copies in this repo
-  (`scripts/install.sh`, `scripts/install.ps1`) are configured to clone the
-  **upstream** repository (`NousResearch/hercules-agent`), not this one. If
-  you specifically want the code in *this* repository, use the
-  [Quick Start](#quick-start--install-from-this-repository-verified) instead.
-- The hosted endpoint could not be reached from the sandboxed environment
-  where this guide was written, so the one-liners are reproduced here from
-  the repo's own README and script headers rather than re-verified live.
+The scripts do more than the Quick Start: they also install Node.js, ripgrep,
+ffmpeg, and (on Windows) a portable Git Bash, and set up the managed
+`~/.hercules/hercules-agent` layout that `hercules update` expects.
 
 The installer supports useful flags (parsed by `scripts/install.sh`):
 
 ```bash
-curl -fsSL https://hercules-agent.nousresearch.com/install.sh | bash -s -- --skip-browser   # no Playwright/Chromium
-curl -fsSL https://hercules-agent.nousresearch.com/install.sh | bash -s -- --no-venv --skip-setup
-curl -fsSL https://hercules-agent.nousresearch.com/install.sh | bash -s -- --branch <name>  # install a specific branch
+curl -fsSL https://raw.githubusercontent.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/main/scripts/install.sh | bash -s -- --skip-browser   # no Playwright/Chromium
+curl -fsSL https://raw.githubusercontent.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/main/scripts/install.sh | bash -s -- --no-venv --skip-setup
+curl -fsSL https://raw.githubusercontent.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/main/scripts/install.sh | bash -s -- --branch <name>  # install a specific branch
 ```
 
 Install layout used by the installer:
