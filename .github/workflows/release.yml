@@ -1,0 +1,122 @@
+name: Create Release
+
+# Manually-dispatched release cutter. Creates the CalVer tag and the GitHub
+# Release, builds the Python distribution with the bundled web dashboard and
+# TUI assets (same steps as upload_to_pypi.yml), and attaches the artifacts
+# plus a SHA256SUMS.txt to the release.
+#
+# Why a separate workflow instead of pushing a tag locally: tags created here
+# use the workflow's GITHUB_TOKEN, which deliberately does NOT trigger the
+# tag-push workflows (upload_to_pypi.yml). PyPI publishing stays a separate,
+# explicit step: run "Publish to PyPI" via workflow_dispatch with this tag
+# once trusted publishing is configured. Desktop installers are attached by
+# dispatching desktop-release.yml with ref=<tag> after this completes.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag to create (CalVer, e.g. v2026.7.18). Must not already exist."
+        required: true
+        type: string
+
+permissions:
+  contents: write # create the tag + release, upload assets
+
+concurrency:
+  group: create-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Validate tag does not exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          case "$VERSION" in
+            v20*) ;;
+            *) echo "::error::Version '$VERSION' must be a CalVer tag starting with v20"; exit 1 ;;
+          esac
+          if gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${VERSION}" >/dev/null 2>&1; then
+            echo "::error::Tag '$VERSION' already exists"
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # 8.2.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      # Same asset-bundling sequence as upload_to_pypi.yml so a release wheel
+      # is identical to a PyPI wheel.
+      - name: Build web dashboard
+        run: cd web && npm ci && npm run build
+
+      - name: Build TUI bundle
+        run: cd ui-tui && npm ci && npm run build
+
+      - name: Bundle TUI into hercules_cli
+        run: |
+          mkdir -p hercules_cli/tui_dist
+          cp ui-tui/dist/entry.js hercules_cli/tui_dist/entry.js
+
+      - name: Verify frontend assets exist
+        run: |
+          test -f hercules_cli/web_dist/index.html || { echo "ERROR: web_dist not built"; exit 1; }
+          test -f hercules_cli/tui_dist/entry.js || { echo "ERROR: tui_dist not built"; exit 1; }
+
+      - name: Bundle install scripts into wheel
+        run: |
+          mkdir -p hercules_cli/scripts
+          cp scripts/install.sh hercules_cli/scripts/install.sh
+          cp scripts/install.ps1 hercules_cli/scripts/install.ps1
+
+      - name: Build wheel and sdist
+        run: uv build --sdist --wheel
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum ./* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create tag, release, and attach artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          pkg_version="$(ls dist/*.whl | sed -E 's/.*hercules_agent-([0-9.]+)-.*/\1/')"
+          printf '%s\n' \
+            "Release $VERSION (package version $pkg_version)." \
+            "" \
+            "Attached artifacts:" \
+            "- Python wheel + sdist with the bundled web dashboard, TUI, and install scripts" \
+            "- SHA256SUMS.txt checksums" \
+            "- Linux desktop installers (AppImage/deb/rpm) are attached by the Desktop Release workflow" \
+            "" \
+            "Install from this release: \`pip install hercules_agent-${pkg_version}-py3-none-any.whl\`," \
+            "or from source — see [INSTALL.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/INSTALL.md)." \
+            "" \
+            "Full changes: see [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md)." \
+            > /tmp/release-notes.md
+          gh release create "$VERSION" \
+            --target "$GITHUB_SHA" \
+            --title "Hercules Agent $VERSION" \
+            --latest \
+            --notes-file /tmp/release-notes.md \
+            dist/*.tar.gz dist/*.whl dist/SHA256SUMS.txt
