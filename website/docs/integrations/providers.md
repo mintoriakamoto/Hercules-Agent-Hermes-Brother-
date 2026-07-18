@@ -786,6 +786,55 @@ cmake -B build && cmake --build build --config Release
 
 **Context length (`-c`):** Recent builds default to `0` which reads the model's training context from the GGUF metadata. For models with 128k+ training context, this can OOM trying to allocate the full KV cache. Set `-c` explicitly to at least 64,000 tokens for Hercules. If using parallel slots (`-np`), the total context is divided among slots — with `-c 64000 -np 4`, each slot only gets 16k, which is below Hercules' minimum per active session.
 
+#### Maximizing context on llama.cpp
+
+The KV cache is what limits context on local hardware — at f16 it costs
+hundreds of KB of VRAM per token on large models. These `llama-server` flags
+trade a little speed or precision for a much larger usable window. (These are
+**backend engine flags**, not Hercules options — Hercules just consumes
+whatever window the server exposes.)
+
+| Technique | Flags | Effect / cost |
+| --- | --- | --- |
+| KV cache quantization | `-ctk q8_0 -ctv q8_0` | Roughly halves KV memory vs f16 with minimal quality loss, so ~2× context in the same VRAM. `q4_0`/`q5_1` shrink further but degrade long-context quality — test before trusting. |
+| Flash attention | `-fa on` | Reduces activation memory at long context; **required** for quantized V cache (`-ctv`). |
+| KV cache in system RAM | `-nkvo` | Keeps the KV cache in host RAM instead of VRAM — context becomes bounded by system RAM. Significantly slower; the brute-force option when VRAM is the wall. |
+| YaRN RoPE scaling | `--rope-scaling yarn --yarn-orig-ctx <training_ctx> -c <target>` | Extends usable context *beyond the model's training context*. Quality degrades as you stretch — modest multiples only, and only for models without native long context. |
+| Prefix cache reuse | `--cache-reuse 256` | Reuses KV for matching prompt prefixes across requests via context shifting — makes long agent sessions much cheaper to continue within a fixed window. |
+| Sliding-window (SWA) models | `--swa-full` | Models with sliding-window layers (e.g. Gemma) cap those layers' KV at the window by default; this allocates the full cache instead — more memory, enables cache reuse. |
+| Parallel slots | `-np N`, `--kv-unified` | `-c` is *divided* across slots (`-c 64000 -np 4` → 16k each). `--kv-unified` puts sequences in one shared buffer instead. For a single Hercules session, leave `-np` at 1. |
+
+A practical large-context invocation for a 24 GB GPU:
+
+```bash
+./build/bin/llama-server --jinja -fa on \
+  -c 131072 -ctk q8_0 -ctv q8_0 -ngl 99 \
+  --cache-reuse 256 \
+  -m models/qwen2.5-coder-32b-instruct-Q4_K_M.gguf \
+  --port 8080 --host 0.0.0.0
+```
+
+Architecture-specific KV compression (e.g. MLA on DeepSeek-family models) is
+applied automatically by llama.cpp based on the model — there is no flag to
+set. Flag semantics can shift between llama.cpp releases; `llama-server --help`
+on your build is authoritative.
+
+**Hercules side:** local servers often don't report their context size over
+`/v1/models`, so set `context_length` in `config.yaml` to match your `-c`
+value — it controls when Hercules compresses history and validates requests:
+
+```yaml
+model:
+  context_length: 131072
+```
+
+Independent of the backend, Hercules stretches any fixed window with its own
+machinery: automatic context compression (see the `compression:` section of
+`config.yaml` — trigger threshold, tail budget, pinned head messages), the
+`/compress` and `/usage` commands, provider prompt caching, and cross-session
+recall via memory + session search, which moves knowledge *out* of the live
+window entirely.
+
 Then configure Hercules to point at it:
 
 ```bash
