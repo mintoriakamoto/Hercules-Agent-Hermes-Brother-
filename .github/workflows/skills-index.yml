@@ -18,6 +18,8 @@ permissions:
 jobs:
   build-index:
     # Only run on the upstream repository, not on forks
+    # Intentionally disabled on this repository: the index build/publish
+    # pipeline targets a deployed docs site, which this repo does not have.
     if: github.repository == 'NousResearch/hercules-agent'
     runs-on: ubuntu-latest
     steps:
