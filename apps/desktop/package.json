@@ -4,7 +4,7 @@
   "private": true,
   "version": "1.0.0",
   "description": "Native desktop shell for Hercules Agent.",
-  "author": "Nous Research",
+  "author": "Hercules Agent contributors",
   "homepage": "https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-",
   "type": "module",
   "main": "dist/electron-main.mjs",

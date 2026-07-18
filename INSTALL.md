@@ -357,12 +357,14 @@ modes) is in `nix/nixosModules.nix`. Full guide:
 
 ## Homebrew
 
-`packaging/homebrew/hercules-agent.rb` is a **formula template** for use as a
-tap or homebrew-core starting point — it is not a published, ready-to-install
-formula. As committed, its `url` points at an upstream GitHub release asset
-and its `sha256` is a `<replace-with-release-asset-sha256>` placeholder, so
-`brew install` of this file as-is will not work without filling those in. See
-`packaging/homebrew/README.md` for the maintenance workflow.
+`packaging/homebrew/hercules-agent.rb` is a formula for use as a tap or
+homebrew-core starting point — it is not yet published to any tap. Its `url`
+and `sha256` now point at this repository's real `v2026.7.18` release sdist
+(checksum verified against the release's `SHA256SUMS.txt`). Before it fully
+installs via `brew`, its Python resource stanzas still need regenerating with
+`brew update-python-resources` — see `packaging/homebrew/README.md` for the
+maintenance workflow. Note the project's own platform-support policy lists
+brew installs as unsupported.
 
 ---
 
