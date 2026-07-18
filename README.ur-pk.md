@@ -196,7 +196,7 @@ hercules claw migrate --overwrite  # موجودہ متصادم فائلوں کو
 
 ```bash
 git clone https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git
-cd hercules-agent
+cd Hercules-Agent-Hermes-Brother-
 ./setup-hercules.sh     # uv کو انسٹال کرتا ہے، venv بناتا ہے، .[all] کو انسٹال کرتا ہے، اور ~/.local/bin/hercules کا سیم لنک (symlink) بناتا ہے
 ./hercules              # خود بخود venv کی شناخت کرتا ہے، پہلے `source` کرنے کی ضرورت نہیں
 ```

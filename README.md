@@ -34,6 +34,8 @@ Use any model you want — [OpenRouter](https://openrouter.ai), OpenAI, Anthropi
 
 ## Quick Install
 
+> 📦 **Full installation guide:** [INSTALL.md](INSTALL.md) covers every supported path — verified from-source install of this repository (uv, pip, `setup-hercules.sh`), Termux, native Windows, Docker, Nix, and the optional-extras reference.
+
 ### Linux, macOS, WSL2, Termux
 
 ```bash

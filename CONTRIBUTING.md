@@ -157,7 +157,7 @@ tree means no relative path from the workspace resolves to it.
 
 ```bash
 git clone https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git
-cd hercules-agent
+cd Hercules-Agent-Hermes-Brother-
 
 # Create venv with Python 3.11, OUTSIDE the source tree
 uv venv ~/.hercules/venvs/hercules-dev --python 3.11
