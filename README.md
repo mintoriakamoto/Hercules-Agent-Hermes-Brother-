@@ -4,7 +4,7 @@
 
 # Hercules Agent ☤
 <p align="center">
-  <a href="https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/">Hercules Agent</a> | <a href="https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/">Hercules Desktop</a>
+  <a href="https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/">Hercules Agent</a> | <a href="https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/releases/latest">Hercules Desktop</a>
 </p>
 <p align="center">
   <a href="website/docs/"><img src="https://img.shields.io/badge/Docs-website%2Fdocs-FFD700?style=for-the-badge" alt="Documentation"></a>
@@ -33,6 +33,8 @@ Use any model you want — [OpenRouter](https://openrouter.ai), OpenAI, Anthropi
 ## Quick Install
 
 > 📦 **Full installation guide:** [INSTALL.md](INSTALL.md) covers every supported path — verified from-source install of this repository (uv, pip, `setup-hercules.sh`), Termux, native Windows, Docker, Nix, and the optional-extras reference.
+>
+> **Prebuilt packages:** the [latest release](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/releases/latest) ships the Python wheel/sdist, checksums, and Linux desktop installers (AppImage/deb/rpm); multi-arch Docker images are on [GHCR](https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/pkgs/container/hercules-agent).
 
 ### Linux, macOS, WSL2, Termux
 
@@ -136,7 +138,7 @@ Hercules has two entry points: start the terminal UI with `hercules`, or run the
 | Interrupt current work         | `Ctrl+C` or send a new message                | `/stop` or send a new message                                                    |
 | Platform-specific status       | `/platforms`                                  | `/status`, `/sethome`                                                            |
 
-For the full command lists, see the [CLI guide](website/docs/user-guide/cli.md) and the [Messaging Gateway guide](website/docs/user-guide/messaging.md).
+For the full command lists, see the [CLI guide](website/docs/user-guide/cli.md) and the [Messaging Gateway guide](website/docs/user-guide/messaging/index.md).
 
 ---
 
@@ -149,7 +151,7 @@ All documentation lives at **[website/docs](website/docs/)**:
 | [Quickstart](website/docs/getting-started/quickstart.md)                 | Install → setup → first conversation in 2 minutes          |
 | [CLI Usage](website/docs/user-guide/cli.md)                              | Commands, keybindings, personalities, sessions             |
 | [Configuration](website/docs/user-guide/configuration.md)                | Config file, providers, models, all options                |
-| [Messaging Gateway](website/docs/user-guide/messaging.md)                | Telegram, Discord, Slack, WhatsApp, Signal, Home Assistant |
+| [Messaging Gateway](website/docs/user-guide/messaging/index.md)                | Telegram, Discord, Slack, WhatsApp, Signal, Home Assistant |
 | [Security](website/docs/user-guide/security.md)                          | Command approval, DM pairing, container isolation          |
 | [Tools & Toolsets](website/docs/user-guide/features/tools.md)            | 40+ tools, toolset system, terminal backends               |
 | [Skills System](website/docs/user-guide/features/skills.md)              | Procedural memory, Skills Hub, creating skills             |

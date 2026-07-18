@@ -37,8 +37,13 @@ jobs:
       matrix:
         include:
           # Ubuntu / Linux — AppImage + deb + rpm.
+          # Pinned to the oldest supported LTS on purpose: native Linux
+          # binaries inherit the build machine's glibc and glibc is only
+          # forward-compatible, so a 22.04-built installer runs on 22.04,
+          # 24.04, and 26.04, while a `ubuntu-latest` build silently drops
+          # older LTS users whenever GitHub retargets `latest`.
           - name: linux
-            os: ubuntu-latest
+            os: ubuntu-22.04
             dist: "dist:linux"
             artifacts: |
               apps/desktop/release/*.AppImage

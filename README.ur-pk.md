@@ -118,7 +118,7 @@ hercules doctor       # کسی بھی مسئلے کی تشخیص کریں
 
 </div>
 
-مکمل کمانڈ لسٹ کے لیے، [CLI گائیڈ](website/docs/user-guide/cli.md) اور [میسجنگ گیٹ وے گائیڈ](website/docs/user-guide/messaging.md) دیکھیں۔
+مکمل کمانڈ لسٹ کے لیے، [CLI گائیڈ](website/docs/user-guide/cli.md) اور [میسجنگ گیٹ وے گائیڈ](website/docs/user-guide/messaging/index.md) دیکھیں۔
 
 ---
 
@@ -133,7 +133,7 @@ hercules doctor       # کسی بھی مسئلے کی تشخیص کریں
 | [فوری آغاز (Quickstart)](website/docs/getting-started/quickstart.md)     | انسٹالیشن → سیٹ اپ → 2 منٹ میں پہلی بات چیت شروع کریں       |
 | [CLI کا استعمال](website/docs/user-guide/cli.md)                         | کمانڈز، کی بائنڈنگز (keybindings)، پرسنلٹیز (personalities)، سیشنز |
 | [کنفیگریشن (Configuration)](website/docs/user-guide/configuration.md)    | کنفگ فائل، پرووائیڈرز، ماڈلز، اور تمام آپشنز               |
-| [میسجنگ گیٹ وے](website/docs/user-guide/messaging.md)                    | ٹیلی گرام، ڈسکارڈ، سلیک، واٹس ایپ، سگنل، ہوم اسسٹنٹ         |
+| [میسجنگ گیٹ وے](website/docs/user-guide/messaging/index.md)                    | ٹیلی گرام، ڈسکارڈ، سلیک، واٹس ایپ، سگنل، ہوم اسسٹنٹ         |
 | [سیکیورٹی (Security)](website/docs/user-guide/security.md)              | کمانڈ کی منظوری، DM پیئرنگ (pairing)، کنٹینر آئسولیشن       |
 | [ٹولز اور ٹول سیٹس](website/docs/user-guide/features/tools.md)          | 40 سے زائد ٹولز، ٹول سیٹ سسٹم، ٹرمینل بیک اینڈز             |
 | [مہارتوں کا سسٹم (Skills System)](website/docs/user-guide/features/skills.md)| پروسیجرل (Procedural) میموری، سکلز ہب، نئی مہارتیں بنانا    |

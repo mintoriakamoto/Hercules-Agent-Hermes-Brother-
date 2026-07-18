@@ -99,7 +99,7 @@ Hercules tiene dos puntos de entrada: inicia la interfaz de terminal con `hercul
 | Interrumpir trabajo actual          | `Ctrl+C` o enviar un nuevo mensaje            | `/stop` o enviar un nuevo mensaje                                                 |
 | Estado específico de plataforma     | `/platforms`                                  | `/status`, `/sethome`                                                             |
 
-Para las listas de comandos completas, consulta la [guía de CLI](website/docs/user-guide/cli.md) y la [guía del Gateway de Mensajería](website/docs/user-guide/messaging.md).
+Para las listas de comandos completas, consulta la [guía de CLI](website/docs/user-guide/cli.md) y la [guía del Gateway de Mensajería](website/docs/user-guide/messaging/index.md).
 
 ---
 
@@ -112,7 +112,7 @@ Toda la documentación está en **[website/docs](website/docs/)**:
 | [Inicio rápido](website/docs/getting-started/quickstart.md)              | Instalar → configurar → primera conversación en 2 minutos   |
 | [Uso de CLI](website/docs/user-guide/cli.md)                             | Comandos, atajos de teclado, personalidades, sesiones        |
 | [Configuración](website/docs/user-guide/configuration.md)               | Archivo de configuración, proveedores, modelos, todas las opciones |
-| [Gateway de Mensajería](website/docs/user-guide/messaging.md)           | Telegram, Discord, Slack, WhatsApp, Signal, Home Assistant   |
+| [Gateway de Mensajería](website/docs/user-guide/messaging/index.md)           | Telegram, Discord, Slack, WhatsApp, Signal, Home Assistant   |
 | [Seguridad](website/docs/user-guide/security.md)                        | Aprobación de comandos, emparejamiento por DM, aislamiento en contenedor |
 | [Herramientas y Toolsets](website/docs/user-guide/features/tools.md)   | Más de 40 herramientas, sistema de toolsets, backends de terminal |
 | [Sistema de Habilidades](website/docs/user-guide/features/skills.md)   | Memoria procedimental, Skills Hub, creación de habilidades   |

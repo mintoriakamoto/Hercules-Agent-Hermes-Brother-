@@ -5,14 +5,16 @@ class HerculesAgent < Formula
   homepage "https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-"
   # Stable source should point at the semver-named sdist asset attached by
   # scripts/release.py, not the CalVer tag tarball.
-  url "https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/releases/download/v2026.3.30/hercules_agent-0.6.0.tar.gz"
-  sha256 "<replace-with-release-asset-sha256>"
+  url "https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/releases/download/v2026.7.18/hercules_agent-1.0.0.tar.gz"
+  sha256 "a0135a62faf3b2606de075931e28b07a45e161513c59733a181a79036811caef"
   license "MIT"
 
   depends_on "certifi" => :no_linkage
   depends_on "cryptography" => :no_linkage
   depends_on "libyaml"
-  depends_on "python@3.14"
+  # pyproject.toml caps requires-python at <3.14 (Rust transitives lack
+  # cp314 wheels) — keep this on the newest supported minor.
+  depends_on "python@3.13"
 
   pypi_packages ignore_packages: %w[certifi cryptography pydantic]
 
