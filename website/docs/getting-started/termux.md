@@ -51,7 +51,7 @@ That does not stop Hercules from working well as a phone-native CLI agent — it
 Hercules now ships a Termux-aware installer path:
 
 ```bash
-curl -fsSL https://hercules-agent.nousresearch.com/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/main/scripts/install.sh | bash
 ```
 
 On Termux, the installer automatically:
