@@ -12,6 +12,11 @@ The shared blackboard is also deliberately low-tech: structured JSON comments on
 the root task. That keeps all state in existing task_comments/task_events rows,
 so the dashboard, notifier, slash command, and dispatcher keep working without a
 new service.
+
+For in-process delegation (delegate_task subagents) there is a general-purpose
+counterpart with the same merge semantics: the ``blackboard`` tool
+(tools/blackboard_tool.py), which gives parent and subagents a shared board
+without requiring a kanban card.
 """
 
 from __future__ import annotations

@@ -689,6 +689,13 @@ def _build_child_system_prompt(
             "Use this exact path for local repository/workdir operations unless the task explicitly says otherwise."
         )
     parts.append(
+        "\nAgent-to-agent communication: the `blackboard` tool (if available) "
+        "is a board shared with the parent agent and your sibling subagents. "
+        "Read it early for context the parent or siblings posted; post your "
+        "own significant findings under a descriptive key (set author to your "
+        "role) so other agents can build on them before you finish."
+    )
+    parts.append(
         "\nComplete this task using the tools available to you. "
         "When finished, provide a clear, concise summary of:\n"
         "- What you did\n"
@@ -3273,6 +3280,12 @@ def _build_top_level_description() -> str:
         "IMPORTANT:\n"
         "- Subagents have NO memory of your conversation. Pass all relevant "
         "info (file paths, error messages, constraints) via the 'context' field.\n"
+        "- Subagents CAN talk to you and to each other through the shared "
+        "`blackboard` tool: post task context or an entry-key convention "
+        "before fanning out, tell workers (in 'context') which keys to post "
+        "their findings under, and read the merged board while/after they "
+        "run. This is the supported cross-agent channel; the memory tool "
+        "stays parent-only.\n"
         "- If the user is writing in a non-English language, or asked for "
         "output in a specific language / tone / style, say so in 'context' "
         "(e.g. \"respond in Chinese\", \"return output in Japanese\"). "

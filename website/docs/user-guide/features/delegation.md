@@ -55,6 +55,10 @@ delegate_task(
 
 The subagent receives a focused system prompt built from your goal and context, instructing it to complete the task and provide a structured summary of what it did, what it found, any files modified, and any issues encountered.
 
+### Mid-flight communication: the blackboard
+
+`goal`/`context` are one-shot, and a subagent's final summary is one-shot in the other direction. For everything in between there is the shared **[blackboard](./blackboard.md)**: a merged key/value board that the parent and every subagent can post to and read. The parent posts shared decisions and an entry-key convention before fanning out; workers post findings as they go (and read what siblings posted); the parent reads the merged board instead of relying solely on self-reported summaries. Subagents inherit the `blackboard` toolset by default — unlike `memory`, which stays parent-only.
+
 ## Practical Examples
 
 ### Parallel Research
