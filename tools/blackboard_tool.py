@@ -33,11 +33,17 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import threading
 import time
 from pathlib import Path
 from typing import Any, Optional
 
 from tools.registry import registry, tool_error
+
+# Serialize first-touch schema creation: N worker threads opening a fresh
+# database concurrently would otherwise race the WAL switch + CREATE TABLE.
+_init_lock = threading.Lock()
+_initialized_paths: set[str] = set()
 
 _ENV_BOARD = "HERCULES_BLACKBOARD_BOARD"
 _DEFAULT_BOARD = "default"
@@ -58,23 +64,33 @@ def _db_path() -> Path:
 
 def _connect() -> sqlite3.Connection:
     path = _db_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    key = str(path)
+    if key not in _initialized_paths:
+        with _init_lock:
+            if key not in _initialized_paths:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                init = sqlite3.connect(path, timeout=10.0)
+                try:
+                    init.execute("PRAGMA journal_mode=WAL")
+                    init.execute(
+                        "CREATE TABLE IF NOT EXISTS blackboard_entries ("
+                        " seq INTEGER PRIMARY KEY AUTOINCREMENT,"
+                        " board TEXT NOT NULL,"
+                        " key TEXT NOT NULL,"
+                        " value TEXT NOT NULL,"
+                        " author TEXT NOT NULL,"
+                        " created_at REAL NOT NULL)"
+                    )
+                    init.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_blackboard_board"
+                        " ON blackboard_entries (board, seq)"
+                    )
+                    init.commit()
+                finally:
+                    init.close()
+                _initialized_paths.add(key)
     conn = sqlite3.connect(path, timeout=10.0)
-    conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=10000")
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS blackboard_entries ("
-        " seq INTEGER PRIMARY KEY AUTOINCREMENT,"
-        " board TEXT NOT NULL,"
-        " key TEXT NOT NULL,"
-        " value TEXT NOT NULL,"
-        " author TEXT NOT NULL,"
-        " created_at REAL NOT NULL)"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_blackboard_board"
-        " ON blackboard_entries (board, seq)"
-    )
     return conn
 
 
