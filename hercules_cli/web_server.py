@@ -13102,7 +13102,14 @@ async def create_skill(body: SkillCreate):
     from tools.skill_manager_tool import _create_skill
 
     with _profile_scope(body.profile):
-        result = _create_skill(body.name, body.content, body.category or None)
+        # force=True skips the near-duplicate guard: that guard exists to stop
+        # the AGENT from accumulating same-purpose skills under variant names.
+        # A human explicitly composing a skill in the dashboard editor has
+        # already made the create decision — exact-name collisions are still
+        # rejected by the shared write path.
+        result = _create_skill(
+            body.name, body.content, body.category or None, force=True
+        )
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error", "Failed to create skill."))
     _clear_skills_prompt_cache()
