@@ -172,6 +172,42 @@ def boards() -> list[dict[str, Any]]:
     return [{"board": b, "entries": n, "last_post_at": ts} for b, n, ts in rows]
 
 
+def wait(
+    key: str,
+    *,
+    board: Optional[str] = None,
+    timeout_seconds: float = 60.0,
+    poll_interval: float = 0.25,
+) -> dict[str, Any]:
+    """Block until ``key`` exists on the board, or the timeout elapses.
+
+    Turns the blackboard into dataflow: a worker can start the moment a
+    sibling posts the entry it depends on, instead of busy-polling from the
+    model loop (each model-driven poll costs a full tool round-trip; this
+    waits in-process for pennies). Returns the same shape as a single-key
+    ``read`` plus ``waited_seconds``. If the key never appears, raises
+    TimeoutError — callers should treat that as "the producer didn't
+    deliver", not retry forever.
+    """
+    key = (key or "").strip()
+    if not key:
+        raise ValueError("key is required")
+    timeout_seconds = min(max(float(timeout_seconds), 0.0), 300.0)
+    deadline = time.monotonic() + timeout_seconds
+    start = time.monotonic()
+    while True:
+        result = read(board=board, key=key)
+        if key in result["entries"]:
+            result["waited_seconds"] = round(time.monotonic() - start, 3)
+            return result
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"key {key!r} did not appear on board {result['board']!r} "
+                f"within {timeout_seconds:g}s"
+            )
+        time.sleep(poll_interval)
+
+
 def clear(*, board: Optional[str] = None, key: Optional[str] = None) -> dict[str, Any]:
     """Drop a whole board, or a single key on a board."""
     resolved = _resolve_board(board)
@@ -194,12 +230,22 @@ def blackboard_tool(
     value: str = "",
     author: str = "",
     board: str = "",
+    timeout_seconds: float = 60.0,
 ) -> str:
     """Tool entry point — dispatch on action, return JSON."""
     act = (action or "").strip().lower()
     try:
         if act == "post":
             result: Any = post(key, value, author=author or "agent", board=board or None)
+        elif act == "wait":
+            try:
+                result = wait(key, board=board or None, timeout_seconds=timeout_seconds)
+            except TimeoutError as exc:
+                return tool_error(
+                    f"{exc}. The producer has not posted yet — either wait again, "
+                    "proceed without this input, or check whether the producing "
+                    "agent failed."
+                )
         elif act == "read":
             result = read(board=board or None, key=key or None)
             payload = json.dumps(result, ensure_ascii=False)
@@ -216,7 +262,7 @@ def blackboard_tool(
             result = clear(board=board or None, key=key or None)
         else:
             return tool_error(
-                f"unknown action {action!r}; use post, read, boards, or clear"
+                f"unknown action {action!r}; use post, read, wait, boards, or clear"
             )
     except (ValueError, sqlite3.Error) as exc:
         return tool_error(str(exc))
@@ -236,7 +282,9 @@ BLACKBOARD_SCHEMA = {
         "winning value. This is short-term coordination state, not persistent "
         "memory — use the memory tool for durable cross-session knowledge. "
         "Actions: post (requires key + value; value may be plain text or a "
-        "JSON document), read (whole board, or one key), boards (list boards), "
+        "JSON document), read (whole board, or one key), wait (block until a "
+        "key appears — use this instead of repeatedly reading when you depend "
+        "on another agent's entry; errors on timeout), boards (list boards), "
         "clear (a board, or one key). The board defaults to the shared "
         "session board; pass board explicitly only to segregate workstreams."
     ),
@@ -250,7 +298,14 @@ BLACKBOARD_SCHEMA = {
             },
             "key": {
                 "type": "string",
-                "description": "Entry key (required for post; optional filter for read/clear).",
+                "description": "Entry key (required for post and wait; optional filter for read/clear).",
+            },
+            "timeout_seconds": {
+                "type": "number",
+                "description": (
+                    "For wait: how long to block for the key to appear "
+                    "(default 60, max 300)."
+                ),
             },
             "value": {
                 "type": "string",
@@ -286,6 +341,7 @@ registry.register(
         value=args.get("value", ""),
         author=args.get("author", ""),
         board=args.get("board", ""),
+        timeout_seconds=args.get("timeout_seconds", 60.0),
     ),
     check_fn=lambda: True,
     emoji="📋",

@@ -2350,6 +2350,145 @@ def _run_single_child(
             logger.debug("Failed to close child agent after delegation")
 
 
+_VERIFIER_MAX_ITERATIONS = 15
+
+
+def _build_verifier_goal(original_goal: str, summary: str) -> str:
+    """Adversarial-verification prompt for a completed subagent's claims."""
+    return (
+        "You are an adversarial verifier. Another agent was given this task:\n\n"
+        f"--- ORIGINAL TASK ---\n{original_goal}\n--- END TASK ---\n\n"
+        "It claims the following outcome:\n\n"
+        f"--- CLAIMED OUTCOME ---\n{summary}\n--- END CLAIM ---\n\n"
+        "Your job is to try to REFUTE the claim, not to confirm it. Check the "
+        "concrete, checkable assertions with your tools: read files it says it "
+        "created or modified, run commands it says now succeed, fetch URLs it "
+        "says exist. Do NOT redo the task and do NOT fix anything — observe "
+        "and judge only.\n\n"
+        "Your FIRST line must be exactly one of:\n"
+        "VERDICT: verified\n"
+        "VERDICT: refuted — <what is actually wrong, one line>\n"
+        "VERDICT: unverifiable — <what you could not check and why, one line>\n\n"
+        "Then at most 5 short lines of evidence (commands run, files read, "
+        "what you observed). If ANY concrete claim fails checking, the "
+        "verdict is refuted. If the claims are purely analytical with nothing "
+        "observable to check, say unverifiable — do not rubber-stamp."
+    )
+
+
+def _run_verification_wave(
+    results: List[Dict[str, Any]],
+    task_list: List[Dict[str, Any]],
+    parent_agent,
+    creds: dict,
+    max_children: int,
+    parent_tool_names: list,
+) -> None:
+    """Second delegation wave: adversarially verify completed tasks' claims.
+
+    Mutates each verified entry in-place: appends the verifier's verdict to
+    ``summary`` (so the parent model sees it inline) and stores the raw
+    verifier output under ``verification``. Verifier cost is folded into the
+    primary entry's ``_child_cost_usd`` so the parent's cost rollup stays
+    truthful. Failed/interrupted/empty tasks are skipped — there is no claim
+    to verify. Verifiers are leaf children and are never themselves verified.
+
+    Thread-safety note: verifier prompts embed the primary summaries, so
+    verifier children can only be built here — on the daemon thread when the
+    delegation runs in the background. ``_build_child_agent`` briefly mutates
+    ``model_tools._last_resolved_tool_names``; the save/restore below bounds
+    that to the build window, the same best-effort guard the primary build
+    path uses.
+    """
+    to_verify = [
+        e for e in results
+        if e.get("status") == "completed" and (e.get("summary") or "").strip()
+    ]
+    if not to_verify:
+        return
+
+    import model_tools as _model_tools
+
+    _saved = list(_model_tools._last_resolved_tool_names)
+    verifier_children = []
+    try:
+        for e in to_verify:
+            idx = e["task_index"]
+            original_goal = (
+                task_list[idx]["goal"] if idx < len(task_list) else "(unknown)"
+            )
+            child = _build_child_agent(
+                task_index=idx,
+                goal=_build_verifier_goal(original_goal, e["summary"]),
+                context=None,
+                toolsets=None,
+                model=creds["model"],
+                max_iterations=_VERIFIER_MAX_ITERATIONS,
+                task_count=len(to_verify),
+                parent_agent=parent_agent,
+                override_provider=creds["provider"],
+                override_base_url=creds["base_url"],
+                override_api_key=creds["api_key"],
+                override_api_mode=creds["api_mode"],
+                override_request_overrides=creds.get("request_overrides"),
+                override_max_tokens=creds.get("max_output_tokens"),
+                override_acp_command=creds.get("command"),
+                override_acp_args=creds.get("args"),
+                role="leaf",
+            )
+            child._delegate_saved_tool_names = parent_tool_names
+            verifier_children.append((e, child))
+    finally:
+        _model_tools._last_resolved_tool_names = _saved
+
+    from tools.daemon_pool import DaemonThreadPoolExecutor
+    from concurrent.futures import wait as _cf_wait, FIRST_COMPLETED
+
+    with DaemonThreadPoolExecutor(max_workers=max_children) as executor:
+        futures = {
+            executor.submit(
+                _run_single_child,
+                task_index=e["task_index"],
+                goal="verify",
+                child=child,
+                parent_agent=parent_agent,
+            ): e
+            for e, child in verifier_children
+        }
+        pending = set(futures.keys())
+        while pending:
+            if getattr(parent_agent, "_interrupt_requested", False) is True:
+                break
+            done, pending = _cf_wait(pending, timeout=0.5, return_when=FIRST_COMPLETED)
+            for future in done:
+                entry = futures[future]
+                try:
+                    v = future.result()
+                except Exception as exc:  # verifier crashed — report, don't hide
+                    v = {"status": "error", "summary": None, "error": str(exc)}
+                v_summary = (v.get("summary") or "").strip()
+                if v.get("status") == "completed" and v_summary:
+                    verdict = v_summary
+                else:
+                    verdict = (
+                        "VERDICT: unverifiable — verifier did not complete "
+                        f"({v.get('error') or v.get('status')})"
+                    )
+                entry["verification"] = {
+                    "verdict": verdict.splitlines()[0],
+                    "detail": verdict,
+                }
+                entry["summary"] = (
+                    f"{entry['summary']}\n\n[adversarial verification]\n{verdict}"
+                )
+                try:
+                    entry["_child_cost_usd"] = float(
+                        entry.get("_child_cost_usd", 0.0) or 0.0
+                    ) + float(v.get("_child_cost_usd", 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    pass
+
+
 def _recover_tasks_from_json_string(
     tasks: Any,
 ) -> tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
@@ -2380,6 +2519,7 @@ def delegate_task(
     max_iterations: Optional[int] = None,
     role: Optional[str] = None,
     background: Optional[bool] = None,
+    verify: Optional[bool] = None,
     parent_agent=None,
 ) -> str:
     """
@@ -2417,6 +2557,7 @@ def delegate_task(
     # the completion queue on its own, carrying its own handle. There's no
     # combined "wait for all" — fan-out is exactly N background subagents.
     background = is_truthy_value(background, default=False) if background is not None else False
+    verify = is_truthy_value(verify, default=False) if verify is not None else False
 
     # Depth limit — configurable via delegation.max_spawn_depth,
     # default 2 for parity with the original MAX_DEPTH constant.
@@ -2684,6 +2825,29 @@ def delegate_task(
 
             # Sort by task_index so results match input order
             results.sort(key=lambda r: r["task_index"])
+
+        # Adversarial verification wave (opt-in, foreground only): every
+        # completed task's claimed outcome is checked by a fresh skeptic
+        # child before it reaches the parent. Runs BEFORE the summary budget
+        # so the appended verdict is budgeted with the rest of the summary.
+        if verify:
+            try:
+                _run_verification_wave(
+                    results,
+                    task_list,
+                    parent_agent,
+                    creds,
+                    max_children,
+                    _parent_tool_names,
+                )
+            except Exception as _verify_exc:
+                logger.warning("Verification wave failed: %s", _verify_exc)
+                for _e in results:
+                    if _e.get("status") == "completed" and "verification" not in _e:
+                        _e["verification"] = {
+                            "verdict": "VERDICT: unverifiable — verification wave crashed",
+                            "detail": str(_verify_exc),
+                        }
 
         # Cap subagent summaries against the parent's remaining context
         # headroom (split across the batch) before they enter the parent's
@@ -3448,6 +3612,22 @@ DELEGATE_TASK_SCHEMA = {
                 "enum": ["leaf", "orchestrator"],
                 "description": "(rebuilt at get_definitions() time)",
             },
+            "verify": {
+                "type": "boolean",
+                "description": (
+                    "When true, every completed task's claimed outcome is "
+                    "adversarially checked by a fresh verifier subagent before "
+                    "the result reaches you: it re-reads files the worker says "
+                    "it wrote, re-runs commands it says now pass, and returns "
+                    "'VERDICT: verified', 'VERDICT: refuted — why', or "
+                    "'VERDICT: unverifiable — why' appended to the task "
+                    "summary. Use it for tasks with externally observable "
+                    "side effects (file writes, builds, uploads) where a "
+                    "wrong self-report is expensive. Costs roughly one extra "
+                    "short subagent per task; skip it for cheap or purely "
+                    "analytical work. Default false."
+                ),
+            },
             "background": {
                 "type": "boolean",
                 "description": (
@@ -3519,6 +3699,7 @@ registry.register(
         max_iterations=args.get("max_iterations"),
         role=args.get("role"),
         background=_model_background_value(args, kw.get("parent_agent")),
+        verify=args.get("verify"),
         parent_agent=kw.get("parent_agent"),
     ),
     check_fn=check_delegate_requirements,

@@ -55,6 +55,18 @@ delegate_task(
 
 The subagent receives a focused system prompt built from your goal and context, instructing it to complete the task and provide a structured summary of what it did, what it found, any files modified, and any issues encountered.
 
+### Adversarial verification (`verify: true`)
+
+Subagent summaries are **self-reports** — a worker that claims "uploaded successfully" or "all tests pass" may be wrong. Pass `verify: true` and every completed task's claimed outcome is checked by a fresh adversarial verifier subagent before the result reaches the parent: it re-reads files the worker says it wrote, re-runs commands the worker says now pass, and appends a verdict to the task summary:
+
+```
+VERDICT: verified
+VERDICT: refuted — <what is actually wrong>
+VERDICT: unverifiable — <what could not be checked>
+```
+
+The verifier is instructed to *refute*, not confirm — purely analytical claims with nothing observable to check come back `unverifiable` rather than rubber-stamped. Verification costs roughly one extra short subagent per task (its spend is folded into the delegation's cost rollup), so use it where a wrong self-report is expensive — file writes, builds, deployments — and skip it for cheap or purely analytical work. Failed tasks are not verified (there is no claim to check), and verifiers are never themselves verified.
+
 ### Mid-flight communication: the blackboard
 
 `goal`/`context` are one-shot, and a subagent's final summary is one-shot in the other direction. For everything in between there is the shared **[blackboard](./blackboard.md)**: a merged key/value board that the parent and every subagent can post to and read. The parent posts shared decisions and an entry-key convention before fanning out; workers post findings as they go (and read what siblings posted); the parent reads the merged board instead of relying solely on self-reported summaries. Subagents inherit the `blackboard` toolset by default — unlike `memory`, which stays parent-only.

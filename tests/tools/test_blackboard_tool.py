@@ -106,6 +106,50 @@ class TestConcurrency:
         assert len(_read_entries()) == 80
 
 
+class TestWait:
+    def test_wait_returns_immediately_when_present(self):
+        bb.post("ready", "yes", author="producer")
+        result = bb.wait("ready", timeout_seconds=5)
+        assert result["entries"] == {"ready": "yes"}
+        assert result["waited_seconds"] < 1.0
+
+    def test_wait_picks_up_concurrent_post(self):
+        def producer():
+            import time as _t
+
+            _t.sleep(0.4)
+            bb.post("handoff", '{"rows": 3}', author="worker:a")
+
+        t = threading.Thread(target=producer)
+        t.start()
+        result = bb.wait("handoff", timeout_seconds=10, poll_interval=0.05)
+        t.join()
+        assert result["entries"] == {"handoff": {"rows": 3}}
+        assert result["_authors"] == {"handoff": "worker:a"}
+        assert result["waited_seconds"] >= 0.3
+
+    def test_wait_times_out(self):
+        with pytest.raises(TimeoutError):
+            bb.wait("never-posted", timeout_seconds=0.3, poll_interval=0.05)
+
+    def test_wait_requires_key(self):
+        with pytest.raises(ValueError):
+            bb.wait("")
+
+    def test_wait_timeout_capped(self):
+        import time as _t
+
+        bb.post("x", "1")
+        start = _t.monotonic()
+        result = bb.wait("x", timeout_seconds=10_000)
+        assert _t.monotonic() - start < 5
+
+    def test_tool_dispatch_wait_timeout_is_tool_error(self):
+        out = bb.blackboard_tool("wait", key="ghost", timeout_seconds=0.2)
+        assert "did not appear" in out
+        assert "producer" in out
+
+
 class TestToolEntryPoint:
     def test_post_requires_key(self):
         out = bb.blackboard_tool("post", key="", value="v")
