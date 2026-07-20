@@ -6279,7 +6279,7 @@ def _update_via_zip(args):
         )
         sys.exit(1)
     zip_url = (
-        f"https://github.com/NousResearch/hercules-agent/archive/refs/heads/{branch}.zip"
+        f"https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-/archive/refs/heads/{branch}.zip"
     )
 
     print("→ Downloading latest version...")
@@ -6687,12 +6687,12 @@ def _discard_stashed_changes(
 # =========================================================================
 
 OFFICIAL_REPO_URLS = {
-    "https://github.com/NousResearch/hercules-agent.git",
-    "git@github.com:NousResearch/hercules-agent.git",
-    "https://github.com/NousResearch/hercules-agent",
-    "git@github.com:NousResearch/hercules-agent",
+    "https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git",
+    "git@github.com:mintoriakamoto/Hercules-Agent-Hermes-Brother-.git",
+    "https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-",
+    "git@github.com:mintoriakamoto/Hercules-Agent-Hermes-Brother-",
 }
-OFFICIAL_REPO_URL = "https://github.com/NousResearch/hercules-agent.git"
+OFFICIAL_REPO_URL = "https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git"
 SKIP_UPSTREAM_PROMPT_FILE = ".skip_upstream_prompt"
 
 
@@ -6826,7 +6826,7 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
         # Ask user if they want to add upstream
         print()
         print("ℹ Your fork is not tracking the official Hercules repository.")
-        print("  This means you may miss updates from NousResearch/hercules-agent.")
+        print("  This means you may miss updates from mintoriakamoto/Hercules-Agent-Hermes-Brother-.")
         print()
         try:
             response = (
@@ -6840,7 +6840,7 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
             print("→ Adding upstream remote...")
             if _add_upstream_remote(git_cmd, cwd):
                 print(
-                    "  ✓ Added upstream: https://github.com/NousResearch/hercules-agent.git"
+                    "  ✓ Added upstream: https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git"
                 )
                 has_upstream = True
             else:
@@ -6848,7 +6848,7 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
                 return
         else:
             print(
-                "  Skipped. Run 'git remote add upstream https://github.com/NousResearch/hercules-agent.git' to add later."
+                "  Skipped. Run 'git remote add upstream https://github.com/mintoriakamoto/Hercules-Agent-Hermes-Brother-.git' to add later."
             )
             _mark_skip_upstream_prompt()
             return
