@@ -829,7 +829,41 @@ def _annotate_effectiveness(skills: List[Dict[str, Any]]) -> List[str]:
     return proven
 
 
-def skills_list(category: str = None, task_id: str = None) -> str:
+def _rank_skills_by_query(skills: list, query: str) -> list:
+    """Cheap deterministic relevance ranking for ``skills_list(query=...)``.
+
+    Token overlap between the query and each skill's name/description/
+    category — name hits weighted above description hits, exact-name and
+    substring matches boosted. No embeddings, no network: at 100+ skills the
+    previous behavior (full alphabetical dump) made the model scan prose to
+    find the right skill; this returns only scoring matches, best first.
+    """
+    q_tokens = {t for t in re.findall(r"[a-z0-9]+", query.lower()) if len(t) > 1}
+    if not q_tokens:
+        return skills
+    q_join = query.lower().strip()
+    scored = []
+    for s in skills:
+        name = (s.get("name") or "").lower()
+        desc = (s.get("description") or "").lower()
+        cat = (s.get("category") or "").lower()
+        name_tokens = set(re.findall(r"[a-z0-9]+", name))
+        desc_tokens = set(re.findall(r"[a-z0-9]+", desc))
+        cat_tokens = set(re.findall(r"[a-z0-9]+", cat))
+        score = (
+            3.0 * len(q_tokens & name_tokens)
+            + 1.0 * len(q_tokens & desc_tokens)
+            + 1.5 * len(q_tokens & cat_tokens)
+        )
+        if q_join and q_join in name:
+            score += 5.0
+        if score > 0:
+            scored.append((score, s))
+    scored.sort(key=lambda t: (-t[0], t[1].get("name", "")))
+    return [s for _score, s in scored]
+
+
+def skills_list(category: str = None, task_id: str = None, query: str = None) -> str:
     """
     List all available skills (progressive disclosure tier 1 - minimal metadata).
 
@@ -839,6 +873,8 @@ def skills_list(category: str = None, task_id: str = None) -> str:
     Args:
         category: Optional category filter (e.g., "mlops")
         task_id: Optional task identifier used to probe the active backend
+        query: Optional relevance query — returns only matching skills,
+            ranked best-first, instead of the full alphabetical listing
 
     Returns:
         JSON string with minimal skill info: name, description, category
@@ -875,8 +911,12 @@ def skills_list(category: str = None, task_id: str = None) -> str:
         if category:
             all_skills = [s for s in all_skills if s.get("category") == category]
 
-        # Sort by category then name
-        all_skills = _sort_skills(all_skills)
+        if query and query.strip():
+            # Relevance mode: only scoring matches, ranked best-first.
+            all_skills = _rank_skills_by_query(all_skills, query)
+        else:
+            # Sort by category then name
+            all_skills = _sort_skills(all_skills)
 
         # Annotate each skill with its outcome telemetry (proven-helpful skills
         # earn a `proven` flag) so the agent can preferentially reach for what
@@ -1741,13 +1781,26 @@ if __name__ == "__main__":
 
 SKILLS_LIST_SCHEMA = {
     "name": "skills_list",
-    "description": "List available skills (name + description). Use skill_view(name) to load full content.",
+    "description": (
+        "List available skills (name + description). Pass query to get only "
+        "relevant skills ranked best-first instead of the full listing — "
+        "prefer that when looking for a skill for a specific task. Use "
+        "skill_view(name) to load full content."
+    ),
     "parameters": {
         "type": "object",
         "properties": {
             "category": {
                 "type": "string",
                 "description": "Optional category filter to narrow results",
+            },
+            "query": {
+                "type": "string",
+                "description": (
+                    "Optional relevance query (task keywords, e.g. 'deploy "
+                    "docker compose'). Returns only matching skills, ranked "
+                    "best-first."
+                ),
             }
         },
         "required": [],
@@ -1778,7 +1831,9 @@ registry.register(
     toolset="skills",
     schema=SKILLS_LIST_SCHEMA,
     handler=lambda args, **kw: skills_list(
-        category=args.get("category"), task_id=kw.get("task_id")
+        category=args.get("category"),
+        task_id=kw.get("task_id"),
+        query=args.get("query"),
     ),
     check_fn=check_skills_requirements,
     emoji="📚",

@@ -388,7 +388,7 @@ class TestDeleteSkill:
     def test_delete_with_absorbed_into_valid_target(self, tmp_path):
         with _skill_dir(tmp_path):
             _create_skill("umbrella", VALID_SKILL_CONTENT)
-            _create_skill("narrow", VALID_SKILL_CONTENT)
+            _create_skill("narrow", VALID_SKILL_CONTENT, force=True)
             result = _delete_skill("narrow", absorbed_into="umbrella")
         assert result["success"] is True
         assert "absorbed into 'umbrella'" in result["message"]
@@ -586,7 +586,7 @@ class TestSkillManageDispatcher:
         # validation + message suffix paths are exercised end-to-end.
         with _skill_dir(tmp_path):
             skill_manage(action="create", name="umbrella", content=VALID_SKILL_CONTENT)
-            skill_manage(action="create", name="narrow", content=VALID_SKILL_CONTENT)
+            skill_manage(action="create", name="narrow", content=VALID_SKILL_CONTENT, force=True)
             raw = skill_manage(action="delete", name="narrow", absorbed_into="umbrella")
         result = json.loads(raw)
         assert result["success"] is True
@@ -615,7 +615,7 @@ class TestSkillManageDispatcher:
                  patch("tools.skill_usage.is_bundled",
                        side_effect=lambda skill_name: skill_name == "bundled"):
                 skill_manage(action="create", name="umbrella", content=VALID_SKILL_CONTENT)
-                skill_manage(action="create", name="bundled", content=VALID_SKILL_CONTENT)
+                skill_manage(action="create", name="bundled", content=VALID_SKILL_CONTENT, force=True)
                 raw = skill_manage(
                     action="delete",
                     name="bundled",
@@ -1065,7 +1065,7 @@ class TestPinnedGuard:
         """
         with _skill_dir(tmp_path):
             _create_skill("pinned-one", VALID_SKILL_CONTENT)
-            _create_skill("free-one", VALID_SKILL_CONTENT)
+            _create_skill("free-one", VALID_SKILL_CONTENT, force=True)
             with self._pin("pinned-one"):
                 blocked = _delete_skill("pinned-one")
                 allowed = _delete_skill("free-one")
@@ -1238,7 +1238,7 @@ class TestCuratorConsolidationDeleteGuard:
     def test_verified_consolidation_archives_recoverably(self, tmp_path, monkeypatch):
         with _curator_pass(tmp_path, monkeypatch=monkeypatch) as skills_root:
             _create_skill("umbrella", _skill_content("umbrella"))
-            _create_skill("narrow", _skill_content("narrow"))
+            _create_skill("narrow", _skill_content("narrow"), force=True)
             result = _delete_skill("narrow", absorbed_into="umbrella")
         assert result["success"] is True, result
         assert result.get("_archived") is True
@@ -1277,7 +1277,7 @@ class TestCuratorConsolidationDeleteGuard:
         from tools import skill_usage
         with _curator_pass(tmp_path, monkeypatch=monkeypatch):
             _create_skill("umbrella", _skill_content("umbrella"))
-            _create_skill("narrow", _skill_content("narrow"))
+            _create_skill("narrow", _skill_content("narrow"), force=True)
             skill_usage.mark_agent_created("narrow")
             raw = skill_manage("delete", "narrow", absorbed_into="umbrella")
             result = json.loads(raw)
