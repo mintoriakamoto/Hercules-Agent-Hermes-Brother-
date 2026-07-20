@@ -31,7 +31,9 @@ Subagents run in-process, so they all see the same board automatically:
    `blackboard(action="post", key="research.api-limits", value="...",
    author="worker:research")`.
 3. **Worker ↔ worker**: siblings read the merged board and build on each
-   other's entries instead of duplicating work.
+   other's entries instead of duplicating work. When a worker *depends* on a
+   sibling's output, it uses `wait` to block until the agreed key appears —
+   turning a flat fan-out into a pipeline.
 4. **Parent ← workers**: the parent reads the board while workers run (or
    after), getting structured state rather than relying only on each worker's
    final self-reported summary.
@@ -42,6 +44,7 @@ Subagents run in-process, so they all see the same board automatically:
 | --- | --- | --- |
 | `post` | `key` (required), `value` (text or a JSON document as a string), `author`, `board` | Append an entry; later posts to the same key win on read |
 | `read` | `key` (optional), `board` | Merged board — latest value per key plus `_authors`; oversized boards return the key list with a hint to read keys individually |
+| `wait` | `key` (required), `timeout_seconds` (default 60, max 300), `board` | Block until the key appears, then return it like a single-key `read` (plus `waited_seconds`). Waits in-process — far cheaper than polling `read` from the model loop, where every poll costs a full tool round-trip. Errors if the key never appears. |
 | `boards` | — | All boards with entry counts, newest activity first |
 | `clear` | `board`, `key` (optional) | Drop a board, or one key on a board |
 
