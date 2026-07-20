@@ -378,7 +378,14 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
         if function_name == "memory":
             agent._turns_since_memory = 0
         elif function_name == "skill_manage":
-            agent._iters_since_skill = 0
+            # Only MUTATING actions count as "skills were just reviewed" —
+            # a lone feedback/read/list call used to zero the counter and
+            # push the next background skill review a full interval away,
+            # so sessions that merely rated a skill early never got another
+            # review pass.
+            _sm_action = (function_args or {}).get("action", "")
+            if _sm_action in {"create", "edit", "patch", "delete", "write_file", "remove_file"}:
+                agent._iters_since_skill = 0
 
         # ── Tool Search unwrap ────────────────────────────────────────
         # When the model invokes the tool_call bridge, peel it open so

@@ -582,6 +582,90 @@ def _resolve_skill_dir(name: str, category: str = None) -> Path:
     return _skills_dir() / name
 
 
+def _frontmatter_description(content: str) -> str:
+    """Best-effort frontmatter description extraction (empty on any failure)."""
+    try:
+        fm_end = re.search(r'\n---\s*\n', content[3:])
+        if fm_end:
+            parsed = yaml.safe_load(content[3:fm_end.start() + 3])
+            if isinstance(parsed, dict):
+                return str(parsed.get("description", "") or "")
+    except Exception:
+        pass
+    return ""
+
+
+_SIMILAR_NAME_THRESHOLD = 0.8
+_SIMILAR_DESC_JACCARD = 0.55
+
+
+def _find_similar_skills(name: str, content: str, limit: int = 3) -> List[Dict[str, str]]:
+    """Near-duplicate detection for skill creation.
+
+    Exact-name collision is checked separately; this catches the drift the
+    background review's judgment-only guard lets through — a new skill whose
+    name is a close variant of an existing one, or whose description covers
+    the same ground. Scoring is deliberately cheap and deterministic:
+    difflib ratio on normalized names, token-Jaccard on frontmatter
+    descriptions. Returns up to ``limit`` matches (best first) with a
+    ``reason`` string; empty list = no near-duplicates.
+    """
+    import difflib
+
+    from agent.skill_utils import get_all_skills_dirs, is_excluded_skill_path
+
+    def _norm_name(n: str) -> str:
+        return re.sub(r"[-_\s]+", "", n.lower())
+
+    def _tokens(text: str) -> set:
+        return {t for t in re.findall(r"[a-z0-9]+", text.lower()) if len(t) > 2}
+
+    new_name = _norm_name(name)
+    new_desc_tokens = _tokens(_frontmatter_description(content))
+
+    matches: List[tuple[float, Dict[str, str]]] = []
+    for skills_dir in get_all_skills_dirs():
+        if not skills_dir.exists():
+            continue
+        for skill_md in skills_dir.rglob("SKILL.md"):
+            if is_excluded_skill_path(skill_md):
+                continue
+            existing_name = skill_md.parent.name
+            name_ratio = difflib.SequenceMatcher(
+                None, new_name, _norm_name(existing_name)
+            ).ratio()
+            desc_jaccard = 0.0
+            if new_desc_tokens:
+                try:
+                    existing_desc_tokens = _tokens(
+                        _frontmatter_description(
+                            skill_md.read_text(encoding="utf-8", errors="replace")
+                        )
+                    )
+                except OSError:
+                    existing_desc_tokens = set()
+                if existing_desc_tokens:
+                    overlap = len(new_desc_tokens & existing_desc_tokens)
+                    union = len(new_desc_tokens | existing_desc_tokens)
+                    desc_jaccard = overlap / union if union else 0.0
+            if name_ratio >= _SIMILAR_NAME_THRESHOLD or desc_jaccard >= _SIMILAR_DESC_JACCARD:
+                reason_bits = []
+                if name_ratio >= _SIMILAR_NAME_THRESHOLD:
+                    reason_bits.append(f"name {name_ratio:.0%} similar")
+                if desc_jaccard >= _SIMILAR_DESC_JACCARD:
+                    reason_bits.append(f"description {desc_jaccard:.0%} overlapping")
+                matches.append((
+                    max(name_ratio, desc_jaccard),
+                    {
+                        "name": existing_name,
+                        "path": str(skill_md.parent),
+                        "reason": ", ".join(reason_bits),
+                    },
+                ))
+    matches.sort(key=lambda t: t[0], reverse=True)
+    return [m for _score, m in matches[:limit]]
+
+
 def _find_skill(name: str) -> Optional[Dict[str, Any]]:
     """
     Find a skill by name across all skill directories.
@@ -790,7 +874,9 @@ def _atomic_write_text(file_path: Path, content: str, encoding: str = "utf-8") -
 # Core actions
 # =============================================================================
 
-def _create_skill(name: str, content: str, category: str = None) -> Dict[str, Any]:
+def _create_skill(
+    name: str, content: str, category: str = None, force: bool = False
+) -> Dict[str, Any]:
     """Create a new user skill with SKILL.md content."""
     # Validate name
     err = _validate_name(name)
@@ -817,6 +903,26 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
             "success": False,
             "error": f"A skill named '{name}' already exists at {existing['path']}."
         }
+
+    # Near-duplicate guard: exact-name collision alone let same-purpose
+    # skills accumulate under variant names. Block on close name/description
+    # matches unless the caller explicitly overrides with force=true.
+    if not force:
+        similar = _find_similar_skills(name, content)
+        if similar:
+            listing = "; ".join(
+                f"'{m['name']}' ({m['reason']}) at {m['path']}" for m in similar
+            )
+            return {
+                "success": False,
+                "error": (
+                    f"Not created: existing skill(s) look near-duplicate — {listing}. "
+                    "Prefer patching/extending the existing skill "
+                    "(action='patch' or 'edit'). If this new skill is genuinely "
+                    "distinct, retry with force=true."
+                ),
+                "similar_skills": similar,
+            }
 
     # Create the skill directory
     skill_dir = _resolve_skill_dir(name, category)
@@ -1373,6 +1479,7 @@ def skill_manage(
     replace_all: bool = False,
     absorbed_into: str = None,
     helpful: bool = None,
+    force: bool = False,
 ) -> str:
     """
     Manage user-created skills. Dispatches to the appropriate action handler.
@@ -1404,7 +1511,7 @@ def skill_manage(
     if action == "create":
         if not content:
             return tool_error("content is required for 'create'. Provide the full SKILL.md text (frontmatter + body).", success=False)
-        result = _create_skill(name, content, category)
+        result = _create_skill(name, content, category, force=force)
 
     elif action == "edit":
         if not content:
@@ -1550,6 +1657,15 @@ SKILL_MANAGE_SCHEMA = {
                 "type": "boolean",
                 "description": "For 'patch': replace all occurrences instead of requiring a unique match (default: false)."
             },
+            "force": {
+                "type": "boolean",
+                "description": (
+                    "For 'create': override the near-duplicate guard. Creation is "
+                    "refused when an existing skill has a closely similar name or "
+                    "description; pass force=true ONLY after confirming the new "
+                    "skill is genuinely distinct (default: false)."
+                )
+            },
             "category": {
                 "type": "string",
                 "description": (
@@ -1619,6 +1735,7 @@ registry.register(
         new_string=args.get("new_string"),
         replace_all=args.get("replace_all", False),
         absorbed_into=args.get("absorbed_into"),
-        helpful=args.get("helpful")),
+        helpful=args.get("helpful"),
+        force=args.get("force", False)),
     emoji="📝",
 )

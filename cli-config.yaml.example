@@ -665,6 +665,12 @@ skills:
   # Set to 0 to disable.
   creation_nudge_interval: 15
 
+  # Character budget for the skills index injected into the system prompt.
+  # Beyond the cap, remaining skills are listed names-only with a pointer to
+  # skills_list(query=...) for ranked discovery, so the index can't grow
+  # without bound as skills accumulate. Set 0 to disable the cap.
+  # index_max_chars: 24000
+
   # External skill directories — share skills across tools/agents without
   # copying them into ~/.hercules/skills/.  Each path is expanded (~ and ${VAR})
   # and resolved to an absolute path.  External dirs are read-only: skill

@@ -1666,6 +1666,43 @@ def build_skills_system_prompt(
                 else:
                     index_lines.append(f"    - {name}")
 
+        # Bound the injected index. Unlike context files (capped via
+        # _truncate_content) this block grew one line per skill with no
+        # ceiling, and it sits in the system prompt of EVERY turn. When over
+        # budget, degrade gracefully: keep full description lines until the
+        # cap, then compress the remainder to names-only, and point the model
+        # at skills_list(query=...) for ranked discovery. Cap is configurable
+        # via skills.index_max_chars (0 disables the cap).
+        _index_cap = 24_000
+        try:
+            from hercules_cli.config import cfg_get, load_config_readonly
+            _cfg_cap = cfg_get(load_config_readonly(), "skills", "index_max_chars")
+            if _cfg_cap is not None:
+                _index_cap = int(_cfg_cap)
+        except Exception:
+            pass
+        if _index_cap > 0:
+            _running = 0
+            _cut = None
+            for _i, _line in enumerate(index_lines):
+                _running += len(_line) + 1
+                if _running > _index_cap:
+                    _cut = _i
+                    break
+            if _cut is not None:
+                _overflow_names = [
+                    _l.strip().lstrip("- ").split(":", 1)[0]
+                    for _l in index_lines[_cut:]
+                    if _l.lstrip().startswith("- ")
+                ]
+                index_lines = index_lines[:_cut]
+                index_lines.append(
+                    f"  [+{len(_overflow_names)} more skills, descriptions "
+                    "omitted for space: "
+                    + ", ".join(_overflow_names)
+                    + ". Use skills_list(query='...') to find and rank them.]"
+                )
+
         result = (
             "## Skills (mandatory)\n"
             "Before replying, scan the skills below. If a skill matches or is even partially relevant "
