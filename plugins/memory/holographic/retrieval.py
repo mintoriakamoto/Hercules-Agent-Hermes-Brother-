@@ -197,25 +197,49 @@ class FactRetriever:
         if category:
             where += " AND category = ?"
             params.append(category)
+        # Two-phase scan: score on (fact_id, embedding) only, then fetch full
+        # rows for just the top-`limit` winners. The brute-force cosine pass
+        # over every embedded fact is unavoidable without a vector index, but
+        # SELECT * materialized every fact's full text/metadata row (this runs
+        # per turn via prefetch) when only ~`limit` rows are ever returned.
         try:
             with self.store._lock:
                 rows = conn.execute(
-                    f"SELECT * FROM facts WHERE {where}", params
+                    f"SELECT fact_id, embedding FROM facts WHERE {where}", params
                 ).fetchall()
         except Exception:
             return []
 
-        scored: list[tuple[float, dict]] = []
+        scored_ids: list[tuple[float, int]] = []
         for row in rows:
-            fact = dict(row)
-            emb = fact.get("embedding")
+            emb = row["embedding"]
             if not emb:
                 continue
             sim = cosine(query_emb, bytes_to_vec(emb))
+            scored_ids.append((sim, row["fact_id"]))
+        scored_ids.sort(key=lambda t: t[0], reverse=True)
+        top = scored_ids[:limit]
+        if not top:
+            return []
+
+        order = {fact_id: rank for rank, (_sim, fact_id) in enumerate(top)}
+        placeholders = ",".join("?" * len(top))
+        try:
+            with self.store._lock:
+                full_rows = conn.execute(
+                    f"SELECT * FROM facts WHERE fact_id IN ({placeholders})",
+                    [fact_id for _sim, fact_id in top],
+                ).fetchall()
+        except Exception:
+            return []
+
+        facts = []
+        for row in full_rows:
+            fact = dict(row)
             fact["fts_rank"] = 0.0
-            scored.append((sim, fact))
-        scored.sort(key=lambda t: t[0], reverse=True)
-        return [fact for _sim, fact in scored[:limit]]
+            facts.append(fact)
+        facts.sort(key=lambda f: order.get(f["fact_id"], len(order)))
+        return facts
 
     @staticmethod
     def _union_candidates(primary: list[dict], extra: list[dict]) -> list[dict]:

@@ -858,9 +858,34 @@ def run_conversation(
         for am in api_messages:
             if isinstance(am.get("content"), str):
                 am["content"] = am["content"].strip()
+        # Historical tool-call arguments never change once written, but this
+        # loop runs on EVERY API iteration of every turn — without a cache the
+        # same (often large: file contents, diffs) argument strings get
+        # json.loads + json.dumps'd O(history x iterations) times. Cache the
+        # normalized list per original tool_calls object. Keyed by id() with
+        # the raw argument strings as a validity fingerprint: history
+        # compression can drop messages and let a NEW list reuse a dead
+        # list's id, so an id hit only counts when the raw strings still
+        # match (string compare is pointer-fast for the unchanged case).
+        _norm_cache = getattr(agent, "_normalized_tool_calls_cache", None)
+        if _norm_cache is None:
+            _norm_cache = {}
+            agent._normalized_tool_calls_cache = _norm_cache
+        if len(_norm_cache) > 512:
+            _norm_cache.clear()
         for am in api_messages:
             tcs = am.get("tool_calls")
             if not tcs:
+                continue
+            _fingerprint = tuple(
+                tc["function"].get("arguments")
+                if isinstance(tc, dict) and "function" in tc
+                else None
+                for tc in tcs
+            )
+            _cached = _norm_cache.get(id(tcs))
+            if _cached is not None and _cached[0] == _fingerprint:
+                am["tool_calls"] = _cached[1]
                 continue
             new_tcs = []
             for tc in tcs:
@@ -880,6 +905,7 @@ def run_conversation(
                             tc["function"].get("name", "?"),
                         )
                 new_tcs.append(tc)
+            _norm_cache[id(tcs)] = (_fingerprint, new_tcs)
             am["tool_calls"] = new_tcs
 
         # Proactively strip any surrogate characters before the API call.
@@ -894,8 +920,15 @@ def run_conversation(
         # separate field. Add tools back for compression decisions so long
         # tool-heavy turns do not creep up to the context ceiling and leave
         # no room for the model's final answer.
-        total_chars = sum(len(str(msg)) for msg in api_messages)
         approx_tokens = estimate_messages_tokens_rough(api_messages)
+        # Derive the char metric from the token estimate (chars ≈ tokens*4,
+        # the same ratio the estimator divides by) instead of str()-ing every
+        # message: raw str(msg) fully stringifies embedded base64 image
+        # blocks, so one screenshot in history meant megabytes of stringify
+        # work on EVERY API iteration of every later turn. The estimator
+        # already strips image payloads. total_chars feeds only a debug log
+        # line and the request_char_count metric.
+        total_chars = approx_tokens * 4
         request_pressure_tokens = estimate_request_tokens_rough(
             api_messages, tools=agent.tools or None
         )
