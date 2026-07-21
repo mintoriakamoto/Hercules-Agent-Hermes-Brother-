@@ -86,15 +86,13 @@ def test_single_handler_builders(name, builder, kw, argv):
     assert ns.func is handler
 
 
-def test_dashboard_builder_two_handlers():
+def test_dashboard_builder():
     parser = argparse.ArgumentParser(prog="hercules")
     sub = parser.add_subparsers(dest="command")
-    dash, reg = _h("dashboard"), _h("dashboard_register")
-    build_dashboard_parser(sub, cmd_dashboard=dash, cmd_dashboard_register=reg)
+    dash = _h("dashboard")
+    build_dashboard_parser(sub, cmd_dashboard=dash)
     # bare dashboard -> launch handler
     assert parser.parse_args(["dashboard"]).func is dash
-    # dashboard register -> register handler
-    assert parser.parse_args(["dashboard", "register"]).func is reg
 
 
 # ── deprecated `hercules login` fails gracefully, not with argparse error ────

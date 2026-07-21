@@ -12197,11 +12197,6 @@ def cmd_dashboard(args):
     )
 
 
-def cmd_dashboard_register(args):
-    """Register a self-hosted dashboard OAuth client with the configured provider."""
-    from hercules_cli.dashboard_register import cmd_dashboard_register as _impl
-
-    _impl(args)
 
 
 def cmd_gateway_enroll(args):
@@ -14594,7 +14589,6 @@ def main():
     build_dashboard_parser(
         subparsers,
         cmd_dashboard=cmd_dashboard,
-        cmd_dashboard_register=cmd_dashboard_register,
     )
 
 

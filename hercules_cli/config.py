@@ -1975,14 +1975,13 @@ DEFAULT_CONFIG = {
         # client_secret}`` (or the ``HERCULES_DASHBOARD_OIDC_*`` env vars) and
         # registers only when both issuer and client_id are set. Password login
         # is provided by ``dashboard_auth/basic`` (see ``basic_auth`` below).
-        #
-        # The ``client_id`` / ``portal_url`` keys below are LEGACY and no longer
-        # read by any plugin — their only consumer was the removed Nous Portal
-        # provider. They are retained for backward-compatible config loading;
-        # configure OIDC via ``self_hosted`` above instead.
         "oauth": {
-            "client_id": "",  # legacy, unused (was: Nous Portal client id)
-            "portal_url": "",  # legacy, unused (was: Nous Portal base URL)
+            "self_hosted": {
+                "issuer": "",
+                "client_id": "",
+                "scopes": "",         # optional; default "openid profile email"
+                "client_secret": "",  # optional; set for a confidential client
+            },
         },
         # Username/password gate configuration — read by the bundled
         # ``dashboard_auth/basic`` plugin (a self-hosted "just put a

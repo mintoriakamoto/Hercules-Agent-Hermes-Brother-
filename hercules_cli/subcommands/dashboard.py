@@ -85,7 +85,7 @@ def _add_server_runtime_args(parser) -> None:
 
 
 def build_dashboard_parser(
-    subparsers, *, cmd_dashboard: Callable, cmd_dashboard_register: Callable
+    subparsers, *, cmd_dashboard: Callable
 ) -> None:
     """Attach the ``dashboard`` and ``serve`` subcommands.
 
@@ -155,41 +155,3 @@ def build_dashboard_parser(
     # unset and serves the browser UI as before.
     serve_parser.set_defaults(func=cmd_dashboard, no_open=True, headless_backend=True)
 
-    # `hercules dashboard register` — removed no-op stub (it required the
-    # removed Nous Portal provider). Kept registered so old invocations get a
-    # clear message instead of an argparse error; args below are ignored.
-    # Nested subparser so bare `hercules dashboard` keeps launching the server
-    # (set_defaults(func=cmd_dashboard) above remains the default).
-    dashboard_subparsers = dashboard_parser.add_subparsers(
-        dest="dashboard_subcommand"
-    )
-    dashboard_register_parser = dashboard_subparsers.add_parser(
-        "register",
-        help="(removed) Automated dashboard OAuth-client registration — required the removed Nous provider",
-        description=(
-            "No longer available. This command registered a self-hosted dashboard "
-            "OAuth client automatically, which required the removed Nous provider. "
-            "Secure the dashboard with the bundled self-hosted OIDC provider "
-            "(dashboard.oauth.self_hosted.issuer + client_id, or the "
-            "HERCULES_DASHBOARD_OIDC_ISSUER / _CLIENT_ID env vars) or "
-            "dashboard.basic_auth for a password instead."
-        ),
-    )
-    dashboard_register_parser.add_argument(
-        "--name",
-        default=None,
-        help="(removed command; ignored)",
-    )
-    dashboard_register_parser.add_argument(
-        "--redirect-uri",
-        dest="redirect_uri",
-        default=None,
-        help="(removed command; ignored)",
-    )
-    dashboard_register_parser.add_argument(
-        "--portal-url",
-        dest="portal_url",
-        default=None,
-        help="(removed command; ignored)",
-    )
-    dashboard_register_parser.set_defaults(func=cmd_dashboard_register)
