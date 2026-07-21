@@ -293,7 +293,7 @@ BLACKBOARD_SCHEMA = {
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["post", "read", "boards", "clear"],
+                "enum": ["post", "read", "wait", "boards", "clear"],
                 "description": "Operation to perform.",
             },
             "key": {
