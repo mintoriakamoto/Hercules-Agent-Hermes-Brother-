@@ -301,3 +301,40 @@ class TestSecretRedactionInDisplay:
 
         captured = capsys.readouterr()
         assert "Set model.reasoning_effort = high" in captured.out
+
+
+class TestListIndexErrors:
+    """Malformed/out-of-range nested list paths must raise clean, typed
+    errors (surfaced by config_command as a message, not a traceback)."""
+
+    def _write_two_providers(self, home):
+        (home / "config.yaml").write_text(
+            "custom_providers:\n- name: a\n- name: b\n"
+        )
+
+    def test_out_of_range_intermediate_index_raises_indexerror(self, _isolated_hercules_home):
+        self._write_two_providers(_isolated_hercules_home)
+        with pytest.raises(IndexError):
+            set_config_value("custom_providers.5.name", "x")
+
+    def test_out_of_range_final_index_raises_indexerror(self, _isolated_hercules_home):
+        self._write_two_providers(_isolated_hercules_home)
+        with pytest.raises(IndexError):
+            set_config_value("custom_providers.9", "x")
+
+    def test_non_numeric_final_list_segment_raises_typeerror(self, _isolated_hercules_home):
+        self._write_two_providers(_isolated_hercules_home)
+        with pytest.raises(TypeError):
+            set_config_value("custom_providers.abc", "x")
+
+    def test_config_command_reports_clean_error_not_traceback(self, _isolated_hercules_home, capsys):
+        self._write_two_providers(_isolated_hercules_home)
+        args = argparse.Namespace(
+            config_command="set", key="custom_providers.5.name", value="x"
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            config_command(args)
+        assert exc_info.value.code == 1
+        out = capsys.readouterr().out
+        assert "Could not set" in out
+        assert "out of range" in out
