@@ -154,7 +154,7 @@ hercules-agent/
 │   ├── main.py                   # Punto de entrada, análisis de argumentos, despacho de comandos
 │   ├── config.py                 # Gestión de configuración, migración, definiciones de variables de entorno
 │   ├── setup.py                  # Asistente de configuración interactivo
-│   ├── auth.py                   # Resolución de proveedor, OAuth, Nous Portal
+│   ├── auth.py                   # Resolución de proveedor, OAuth device-code login
 │   ├── models.py                 # Listas de selección de modelos de OpenRouter
 │   ├── banner.py                 # Banner de bienvenida, arte ASCII
 │   ├── commands.py               # Registro central de comandos de barra (CommandDef), autocompletado, ayudantes del gateway
@@ -206,7 +206,7 @@ hercules-agent/
 |------|-----------|
 | `~/.hercules/config.yaml` | Configuración (modelo, terminal, toolsets, compresión, etc.) |
 | `~/.hercules/.env` | Claves API y secretos |
-| `~/.hercules/auth.json` | Credenciales OAuth (Nous Portal) |
+| `~/.hercules/auth.json` | Credenciales OAuth (device-code login) |
 | `~/.hercules/skills/` | Todas las habilidades activas (incluidas + instaladas desde hub + creadas por el agente) |
 | `~/.hercules/memories/` | Memoria persistente (MEMORY.md, USER.md) |
 | `~/.hercules/state.db` | Base de datos de sesiones SQLite |
