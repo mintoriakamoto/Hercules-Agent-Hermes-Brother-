@@ -1981,7 +1981,8 @@ DEFAULT_CONFIG = {
         # touch config.yaml. Local dev / non-Fly deploys can set either
         # surface; missing values fall through to the plugin's defaults
         # (no provider registered when ``client_id`` is empty;
-        # ``portal_url`` defaults to https://portal.nousresearch.com).
+        # ``portal_url`` is blank by default and falls through to the
+        # dashboard-auth plugin's own default when a provider is configured).
         "oauth": {
             "client_id": "",  # agent:{instance_id} — Portal provisions this
             "portal_url": "",  # blank → use plugin default (production Portal)

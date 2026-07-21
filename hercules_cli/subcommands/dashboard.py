@@ -191,7 +191,7 @@ def build_dashboard_parser(
         dest="portal_url",
         default=None,
         help=(
-            "Override the Nous Portal base URL for registration (default: the "
+            "Override the OAuth portal base URL for registration (default: the "
             "portal you logged into). The access token must be valid at this "
             "portal. Also settable via HERCULES_DASHBOARD_PORTAL_URL. Mainly for "
             "testing against a staging/preview portal."
