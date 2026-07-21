@@ -1,0 +1,94 @@
+# Hercules-approved MCP catalog entry.
+# Presence in this directory = approval. Merged via PR review.
+#
+# Schema version 1.
+manifest_version: 1
+
+name: computer-use-linux
+description: Drive the Linux desktop (Wayland/X11) via AT-SPI + ydotool — screenshot, click, type, window control.
+source: https://github.com/agent-sh/computer-use-linux
+
+# How to launch the server once installed. The keys here map 1:1 to the
+# `mcp_servers.<name>` block written into ~/.hercules/config.yaml by the
+# existing `_save_mcp_server()` helper in hercules_cli/mcp_config.py.
+#
+# This is an npm-published server, so there is no clone-and-build step: `npx`
+# resolves and runs the package directly. That is why there is no [install]
+# block below — for npm/uvx servers transport.command IS the install (see the
+# n8n manifest's note for the git-clone alternative).
+#
+# The version is PINNED (not floated to `latest`), same policy as the git-ref
+# pins elsewhere in this catalog: the reviewed manifest must install exactly the
+# artifact that was reviewed. Bump this deliberately (and re-review) to adopt a
+# newer release. Published by npm user `avifenesh` (the upstream author); repo
+# lives under their `agent-sh` org.
+transport:
+  type: stdio
+  command: "npx"
+  args:
+    - "-y"
+    - "@agent-sh/computer-use-linux@0.4.1"
+    - "mcp"
+
+# Authentication. Three shapes:
+#   type: api_key  — prompt for env vars, write to ~/.hercules/.env
+#   type: oauth    — provider-mediated or remote MCP native OAuth
+#   type: none     — no credentials needed
+#
+# The server acts entirely on the LOCAL desktop through DBus (AT-SPI) and the
+# ydotool socket. There are no remote calls and no key to prompt for — access
+# is governed by the per-user session bus and the ydotoold service's own
+# permissions.
+auth:
+  type: none
+
+# Tool selection at install time:
+# The server exposes read-only discovery/diagnostic tools alongside input tools
+# that actually move the mouse, type, and rearrange windows. The default set is
+# read-mostly (screenshot + inspection + diagnostics) so a casual install can
+# see the screen and enumerate windows without being able to synthesize input.
+# Users opt into click/drag/type and window mutation from the install-time
+# checklist per their threat model.
+tools:
+  default_enabled:
+    - doctor
+    - list_apps
+    - list_windows
+    - focused_window
+    - get_app_state
+    - screenshot
+
+post_install: |
+  This server controls a REAL Linux desktop session — its input tools
+  (click, drag, scroll, press_key, type_text, perform_action, set_value) move
+  the pointer, press keys, and rearrange windows on the machine Hercules runs
+  on. It needs a live graphical session (Wayland or X11) with a running user
+  D-Bus. Headless servers and most containers do not qualify.
+
+  One-time host setup (nothing installs on the Hercules side — npx fetches the
+  server itself):
+
+    1. Input backend — ydotool. Install ydotool + ydotoold from your distro,
+       then run the daemon as a per-user service:
+         systemctl --user enable --now ydotoold
+       (Your user must be able to reach the ydotool socket; some distros need
+       the `input` group or a udev rule for uinput.)
+
+    2. Accessibility bridge — AT-SPI. Enable it once with the server's own
+       helper (flips the gsettings toggle):
+         npx -y @agent-sh/computer-use-linux@0.4.1 setup
+
+    3. Desktop portals — xdg-desktop-portal and a backend for your compositor
+       (gnome / gtk / kde / wlr) must be installed for screenshots.
+
+    4. Window targeting (optional, GNOME) — for move/resize/activate on GNOME
+       Shell, install the helper extension and log back in:
+         npx -y @agent-sh/computer-use-linux@0.4.1 setup-window-targeting
+
+  Verify readiness before your first session — this prints a JSON report of
+  every subsystem (input, a11y, portal):
+    npx -y @agent-sh/computer-use-linux@0.4.1 doctor
+
+  (The pinned @0.4.1 matches the transport above — same reviewed version.)
+
+  Start a new Hercules session to load the tools.
