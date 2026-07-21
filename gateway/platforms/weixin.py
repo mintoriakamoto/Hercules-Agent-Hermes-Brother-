@@ -1157,6 +1157,11 @@ class WeixinAdapter(BasePlatformAdapter):
         self._poll_session: Optional[aiohttp.ClientSession] = None
         self._send_session: Optional[aiohttp.ClientSession] = None
         self._poll_task: Optional[asyncio.Task] = None
+        # Strong references to in-flight message-dispatch tasks. asyncio keeps
+        # only a weak reference to a bare create_task() result, so a dispatched
+        # message could be GC-collected mid-await and silently vanish. Track
+        # them here (add on spawn, discard on done) and cancel on disconnect.
+        self._message_tasks: "set[asyncio.Task]" = set()
         self._dedup = MessageDeduplicator(ttl_seconds=MESSAGE_DEDUP_TTL_SECONDS)
 
         self._account_id = str(extra.get("account_id") or os.getenv("WEIXIN_ACCOUNT_ID", "")).strip()
@@ -1317,6 +1322,10 @@ class WeixinAdapter(BasePlatformAdapter):
                 task.cancel()
         self._pending_text_batches.clear()
         self._pending_text_batch_tasks.clear()
+        for _mtask in list(self._message_tasks):
+            if not _mtask.done():
+                _mtask.cancel()
+        self._message_tasks.clear()
         if self._poll_task and not self._poll_task.done():
             self._poll_task.cancel()
             try:
@@ -1384,7 +1393,9 @@ class WeixinAdapter(BasePlatformAdapter):
                     _save_sync_buf(self._hercules_home, self._account_id, sync_buf)
 
                 for message in response.get("msgs") or []:
-                    asyncio.create_task(self._process_message_safe(message))
+                    _mtask = asyncio.create_task(self._process_message_safe(message))
+                    self._message_tasks.add(_mtask)
+                    _mtask.add_done_callback(self._message_tasks.discard)
             except asyncio.CancelledError:
                 break
             except Exception as exc:
