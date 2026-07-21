@@ -5442,6 +5442,32 @@ def _repo_root_for_worktree_target(path: Path) -> Optional[Path]:
         current = current.parent
 
 
+# ``git worktree add`` materializes a full checkout of the working tree into
+# the new worktree dir. On a large monorepo (many/large tracked files) this is
+# I/O-bound and can legitimately exceed a minute, so the old hardcoded 60s
+# timeout raised an uncaught ``TimeoutExpired`` on big repos — the kanban
+# worker never got its worktree and auto-dispatch appeared to hang. Default
+# raised to 300s and made configurable for even larger checkouts.
+DEFAULT_WORKTREE_ADD_TIMEOUT_SECONDS = 300
+
+
+def _worktree_add_timeout_seconds() -> int:
+    """Resolve the ``git worktree add`` timeout.
+
+    ``HERCULES_KANBAN_WORKTREE_TIMEOUT_SECONDS`` overrides the default; invalid
+    or non-positive values fall back silently so existing installs keep working.
+    """
+    raw = os.environ.get("HERCULES_KANBAN_WORKTREE_TIMEOUT_SECONDS", "").strip()
+    if raw:
+        try:
+            parsed = int(raw)
+        except ValueError:
+            parsed = 0
+        if parsed > 0:
+            return parsed
+    return DEFAULT_WORKTREE_ADD_TIMEOUT_SECONDS
+
+
 def _ensure_git_worktree(repo_root: Path, target: Path, branch_name: str) -> None:
     """Materialize ``target`` as a linked git worktree under ``repo_root``."""
     target = target.expanduser()
@@ -5458,13 +5484,24 @@ def _ensure_git_worktree(repo_root: Path, target: Path, branch_name: str) -> Non
             "git", "-C", str(repo_root), "worktree", "add", "-b", branch_name,
             str(target), "HEAD",
         ]
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-    )
+    timeout_s = _worktree_add_timeout_seconds()
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        # A raw TimeoutExpired here used to surface as an opaque traceback and
+        # a stranded task. Convert it to the same actionable RuntimeError the
+        # dispatcher already handles, and point at the override knob.
+        raise RuntimeError(
+            f"git worktree add for {target} on branch {branch_name} timed out "
+            f"after {timeout_s}s. On a very large repository, raise the limit "
+            f"via HERCULES_KANBAN_WORKTREE_TIMEOUT_SECONDS."
+        )
     if result.returncode != 0:
         stderr = (result.stderr or result.stdout or "").strip()
         raise RuntimeError(
