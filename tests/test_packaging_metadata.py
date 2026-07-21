@@ -241,6 +241,42 @@ def test_locked_starlette_is_not_vulnerable_to_cve_2026_48710():
         )
 
 
+def test_every_optional_mcp_manifest_has_a_data_files_target():
+    """Regression guard for the unreal-engine drift.
+
+    optional-mcps/<name>/manifest.yaml files are bare data (no __init__.py), so
+    like locales/ they only reach the wheel when declared in
+    [tool.setuptools.data-files]. data-files flattens every glob into ONE target
+    dir, so a shared `optional-mcps/*/*` glob would collapse all manifests into
+    a single colliding optional-mcps/manifest.yaml — each entry needs its own
+    per-name target. The list is therefore hand-maintained, and it drifted:
+    `unreal-engine` shipped a manifest with no data-files target, so the wheel
+    dropped it and `hercules mcp catalog` came up short on packaged installs
+    even though the file exists in the repo. This asserts the contract the
+    pyproject comment claims: one target per on-disk catalog entry, each
+    pointing at exactly that entry's manifest.
+    """
+    catalog_root = REPO_ROOT / "optional-mcps"
+    on_disk = sorted(p.parent.name for p in catalog_root.glob("*/manifest.yaml"))
+    assert on_disk, "expected optional-mcps/<name>/manifest.yaml entries on disk"
+
+    data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    data_files = data["tool"]["setuptools"].get("data-files", {})
+
+    missing = []
+    for name in on_disk:
+        target = f"optional-mcps/{name}"
+        expected = [f"optional-mcps/{name}/manifest.yaml"]
+        if data_files.get(target) != expected:
+            missing.append(f"{target} -> {expected}")
+    assert not missing, (
+        "these optional-mcps catalog entries exist on disk but have no matching "
+        "[tool.setuptools.data-files] target, so the wheel would drop them and "
+        "`hercules mcp catalog` comes up empty on packaged installs — add each in "
+        "pyproject.toml:\n  " + "\n  ".join(missing)
+    )
+
+
 def test_locale_catalogs_ship_in_both_wheel_and_sdist():
     """Regression test for #27632 / #35374 / #23943.
 
