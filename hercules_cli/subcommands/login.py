@@ -46,33 +46,32 @@ def build_login_parser(subparsers, *, cmd_login: Callable) -> None:
         help="(deprecated) Provider name; ignored — see `hercules model`",
     )
     login_parser.add_argument(
-        "--portal-url", help="Portal base URL (default: production portal)"
+        "--portal-url", help="(deprecated) Ignored — `hercules login` was removed; use `hercules model` / `hercules auth`."
     )
     login_parser.add_argument(
-        "--inference-url",
-        help="Inference API base URL (default: production inference API)",
+        "--inference-url", help="(deprecated) Ignored — `hercules login` was removed; use `hercules model` / `hercules auth`.",
     )
     login_parser.add_argument(
-        "--client-id", default=None, help="OAuth client id to use (default: hercules-cli)"
+        "--client-id", default=None, help="(deprecated) Ignored — `hercules login` was removed; use `hercules model` / `hercules auth`."
     )
-    login_parser.add_argument("--scope", default=None, help="OAuth scope to request")
+    login_parser.add_argument("--scope", default=None, help="(deprecated) Ignored — `hercules login` was removed; use `hercules model` / `hercules auth`.")
     login_parser.add_argument(
         "--no-browser",
         action="store_true",
-        help="Do not attempt to open the browser automatically",
+        help="(deprecated) Ignored — `hercules login` was removed; use `hercules model` / `hercules auth`.",
     )
     login_parser.add_argument(
         "--timeout",
         type=float,
         default=15.0,
-        help="HTTP request timeout in seconds (default: 15)",
+        help="(deprecated) Ignored — `hercules login` was removed; use `hercules model` / `hercules auth`.",
     )
     login_parser.add_argument(
-        "--ca-bundle", help="Path to CA bundle PEM file for TLS verification"
+        "--ca-bundle", help="(deprecated) Ignored — `hercules login` was removed; use `hercules model` / `hercules auth`."
     )
     login_parser.add_argument(
         "--insecure",
         action="store_true",
-        help="Disable TLS verification (testing only)",
+        help="(deprecated) Ignored — `hercules login` was removed; use `hercules model` / `hercules auth`.",
     )
     login_parser.set_defaults(func=cmd_login)

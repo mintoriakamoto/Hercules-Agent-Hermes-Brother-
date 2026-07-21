@@ -85,7 +85,7 @@ def _add_server_runtime_args(parser) -> None:
 
 
 def build_dashboard_parser(
-    subparsers, *, cmd_dashboard: Callable, cmd_dashboard_register: Callable
+    subparsers, *, cmd_dashboard: Callable
 ) -> None:
     """Attach the ``dashboard`` and ``serve`` subcommands.
 
@@ -155,46 +155,3 @@ def build_dashboard_parser(
     # unset and serves the browser UI as before.
     serve_parser.set_defaults(func=cmd_dashboard, no_open=True, headless_backend=True)
 
-    # `hercules dashboard register` — register a self-hosted dashboard OAuth
-    # client with Nous Portal and write the client_id into ~/.hercules/.env.
-    # Nested subparser so bare `hercules dashboard` keeps launching the server
-    # (set_defaults(func=cmd_dashboard) above remains the default).
-    dashboard_subparsers = dashboard_parser.add_subparsers(
-        dest="dashboard_subcommand"
-    )
-    dashboard_register_parser = dashboard_subparsers.add_parser(
-        "register",
-        help="(removed) Automated dashboard OAuth-client registration — required the removed Nous provider",
-        description=(
-            "No longer available. This command registered a self-hosted dashboard "
-            "OAuth client automatically, which required the removed Nous provider. "
-            "Configure the dashboard OAuth client manually via "
-            "HERCULES_DASHBOARD_OAUTH_CLIENT_ID in ~/.hercules/.env instead."
-        ),
-    )
-    dashboard_register_parser.add_argument(
-        "--name",
-        default=None,
-        help="Human-readable label for the dashboard (default: an auto-generated name)",
-    )
-    dashboard_register_parser.add_argument(
-        "--redirect-uri",
-        dest="redirect_uri",
-        default=None,
-        help=(
-            "Optional public HTTPS OAuth redirect URI for the dashboard, e.g. "
-            "https://hercules.example.com/auth/callback. Omit for localhost-only use."
-        ),
-    )
-    dashboard_register_parser.add_argument(
-        "--portal-url",
-        dest="portal_url",
-        default=None,
-        help=(
-            "Override the OAuth portal base URL for registration (default: the "
-            "portal you logged into). The access token must be valid at this "
-            "portal. Also settable via HERCULES_DASHBOARD_PORTAL_URL. Mainly for "
-            "testing against a staging/preview portal."
-        ),
-    )
-    dashboard_register_parser.set_defaults(func=cmd_dashboard_register)
