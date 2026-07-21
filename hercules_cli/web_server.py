@@ -16783,7 +16783,7 @@ def start_server(
         from hercules_cli.dashboard_auth import list_providers
         if not list_providers():
             # Surface the *specific* reason any bundled provider declined
-            # to register (e.g. missing HERCULES_DASHBOARD_OAUTH_CLIENT_ID).
+            # to register (e.g. missing HERCULES_DASHBOARD_OIDC_CLIENT_ID).
             # Each provider plugin that ships with Hercules Agent exposes a
             # module-level ``LAST_SKIP_REASON`` string for this purpose;
             # without it the operator would only see "no providers" which
@@ -16797,8 +16797,11 @@ def start_server(
                 "    (hash with: python -c \"from "
                 "plugins.dashboard_auth.basic import hash_password; "
                 "print(hash_password('your-password'))\")\n"
-                "  • OAuth: run `hercules dashboard register` or "
-                "install a DashboardAuthProvider plugin.\n"
+                "  • OAuth (OIDC): set dashboard.oauth.self_hosted.issuer + "
+                "client_id in config.yaml (or the HERCULES_DASHBOARD_OIDC_ISSUER "
+                "+ HERCULES_DASHBOARD_OIDC_CLIENT_ID env vars) to authenticate "
+                "against your IdP (Keycloak / Authentik / Auth0 / Okta / Google), "
+                "or install a DashboardAuthProvider plugin.\n"
                 "There is no unauthenticated public-bind option — to keep it "
                 "local, bind 127.0.0.1 and tunnel in (SSH / Tailscale)."
             )

@@ -16,7 +16,9 @@ def cmd_dashboard_register(args) -> None:
     print(
         "✗ `hercules dashboard register` is no longer available.\n"
         "  It registered a self-hosted dashboard OAuth client with the Nous Portal,\n"
-        "  which has been removed. Configure the dashboard OAuth client manually via\n"
-        "  HERCULES_DASHBOARD_OAUTH_CLIENT_ID in ~/.hercules/.env if needed."
+        "  which has been removed. To secure the dashboard, configure the bundled\n"
+        "  self-hosted OIDC provider instead: set dashboard.oauth.self_hosted.issuer\n"
+        "  + client_id in config.yaml (or HERCULES_DASHBOARD_OIDC_ISSUER +\n"
+        "  HERCULES_DASHBOARD_OIDC_CLIENT_ID), or dashboard.basic_auth for a password."
     )
     sys.exit(1)

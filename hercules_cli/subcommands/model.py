@@ -25,20 +25,18 @@ def build_model_parser(subparsers, *, cmd_model: Callable) -> None:
         help="Wipe the model picker disk cache and re-fetch every provider's live /v1/models list.",
     )
     model_parser.add_argument(
-        "--portal-url",
-        help="Portal base URL for OAuth device-code login (default: production portal)",
+        "--portal-url", help="(deprecated) Ignored — removed with the Nous Portal device-code login; use `hercules model`.",
     )
     model_parser.add_argument(
-        "--inference-url",
-        help="Inference API base URL for OAuth device-code login (default: production inference API)",
+        "--inference-url", help="(deprecated) Ignored — removed with the Nous Portal device-code login; use `hercules model`.",
     )
     model_parser.add_argument(
         "--client-id",
         default=None,
-        help="OAuth client id to use for device-code login (default: hercules-cli)",
+        help="(deprecated) Ignored — surviving OAuth providers use built-in client ids.",
     )
     model_parser.add_argument(
-        "--scope", default=None, help="OAuth scope to request for device-code login"
+        "--scope", default=None, help="(deprecated) Ignored — surviving OAuth providers use built-in scopes."
     )
     model_parser.add_argument(
         "--no-browser",
@@ -52,11 +50,11 @@ def build_model_parser(subparsers, *, cmd_model: Callable) -> None:
         help="HTTP request timeout in seconds for device-code login (default: 15)",
     )
     model_parser.add_argument(
-        "--ca-bundle", help="Path to CA bundle PEM file for device-code login TLS verification"
+        "--ca-bundle", help="(deprecated) Ignored — removed with the Nous Portal device-code login; use `hercules model`."
     )
     model_parser.add_argument(
         "--insecure",
         action="store_true",
-        help="Disable TLS verification for device-code login (testing only)",
+        help="(deprecated) Ignored — removed with the Nous Portal device-code login; use `hercules model`.",
     )
     model_parser.set_defaults(func=cmd_model)
