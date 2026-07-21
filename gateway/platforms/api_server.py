@@ -2097,11 +2097,20 @@ class APIServerAdapter(BasePlatformAdapter):
                 data = json.dumps(payload, ensure_ascii=False)
                 await response.write(f"event: {name}\ndata: {data}\n\n".encode("utf-8"))
                 last_write = time.monotonic()
-        except (asyncio.CancelledError, ConnectionResetError):
+        except asyncio.CancelledError:
             task.cancel()
             raise
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError) as exc:
+            # Any client-disconnect write failure — not just ConnectionReset —
+            # must cancel the background agent task. Otherwise the agent keeps
+            # running the full turn (LLM calls, tools) with no consumer,
+            # draining tokens into an unbounded, never-read queue. Mirrors the
+            # chat-completions SSE writer's disconnect handling below.
+            logger.info("[api_server] session SSE client disconnected: %s", exc)
+            task.cancel()
         except Exception as exc:
             logger.debug("[api_server] session SSE stream error: %s", exc)
+            task.cancel()
         return response
 
     async def _handle_chat_completions(self, request: "web.Request") -> "web.Response":

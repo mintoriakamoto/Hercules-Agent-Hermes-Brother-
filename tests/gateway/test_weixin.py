@@ -1205,3 +1205,42 @@ class TestWeixinApiTimeout:
             )
         )
         assert result == {"ret": 0, "msgs": [], "get_updates_buf": "buf-123"}
+
+
+class TestWeixinMessageTaskTracking:
+    """Regression: dispatched message tasks must be strong-referenced so the
+    event loop can't GC them mid-flight, and cancelled on disconnect."""
+
+    def test_disconnect_cancels_tracked_message_tasks(self):
+        async def _run():
+            adapter = _make_adapter()
+
+            started = asyncio.Event()
+
+            async def _slow_message():
+                started.set()
+                await asyncio.sleep(30)
+
+            # Simulate the dispatch site: spawn + track like _poll_loop does.
+            task = asyncio.create_task(_slow_message())
+            adapter._message_tasks.add(task)
+            task.add_done_callback(adapter._message_tasks.discard)
+            await started.wait()
+            assert task in adapter._message_tasks
+
+            # Stub out the rest of disconnect's teardown so we isolate the
+            # message-task cancellation.
+            adapter._release_platform_lock = lambda: None
+            adapter._mark_disconnected = lambda: None
+            await adapter.disconnect()
+
+            # disconnect() requested cancellation and cleared the set; let the
+            # loop deliver the CancelledError into the awaiting task.
+            assert not adapter._message_tasks
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            assert task.cancelled()
+
+        asyncio.run(_run())
