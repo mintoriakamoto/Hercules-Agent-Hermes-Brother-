@@ -68,6 +68,12 @@ SSE_RETRY_DELAY_INITIAL = 2.0
 SSE_RETRY_DELAY_MAX = 60.0
 HEALTH_CHECK_INTERVAL = 30.0  # seconds between health checks
 HEALTH_CHECK_STALE_THRESHOLD = 120.0  # seconds without SSE activity before concern
+# Consecutive healthy-daemon-but-idle-stream checks before we treat the SSE
+# stream as dead and reconnect. A briefly-quiet stream is normal; a silently
+# dropped TCP connection (NAT/proxy conntrack timeout with no RST/FIN) looks
+# identical at the daemon-health level but blocks aiter_text forever, so we
+# must not trust "daemon healthy" as proof the stream is alive indefinitely.
+HEALTH_CHECK_IDLE_RECONNECT_CYCLES = 2
 
 
 # ---------------------------------------------------------------------------
@@ -299,6 +305,7 @@ class SignalAdapter(BasePlatformAdapter):
         self._typing_skip_until: Dict[str, float] = {}
         self._running = False
         self._last_sse_activity = 0.0
+        self._consecutive_idle_health_checks = 0
         self._sse_response: Optional[httpx.Response] = None
 
         # Normalize account for self-message filtering
@@ -494,23 +501,49 @@ class SignalAdapter(BasePlatformAdapter):
                 break
 
             elapsed = time.time() - self._last_sse_activity
-            if elapsed > HEALTH_CHECK_STALE_THRESHOLD:
-                logger.warning("Signal: SSE idle for %.0fs, checking daemon health", elapsed)
-                try:
-                    resp = await self.client.get(
-                        f"{self.http_url}/api/v1/check", timeout=10.0
-                    )
-                    if resp.status_code == 200:
-                        # Daemon is alive but SSE is idle — update activity to
-                        # avoid repeated warnings (connection may just be quiet)
-                        self._last_sse_activity = time.time()
-                        logger.debug("Signal: daemon healthy, SSE idle")
-                    else:
-                        logger.warning("Signal: health check failed (%d), forcing reconnect", resp.status_code)
-                        self._force_reconnect()
-                except Exception as e:
-                    logger.warning("Signal: health check error: %s, forcing reconnect", e)
-                    self._force_reconnect()
+            if elapsed <= HEALTH_CHECK_STALE_THRESHOLD:
+                # Stream produced activity within the window — healthy.
+                self._consecutive_idle_health_checks = 0
+                continue
+
+            logger.warning("Signal: SSE idle for %.0fs, checking daemon health", elapsed)
+            try:
+                resp = await self.client.get(
+                    f"{self.http_url}/api/v1/check", timeout=10.0
+                )
+            except Exception as e:
+                logger.warning("Signal: health check error: %s, forcing reconnect", e)
+                self._consecutive_idle_health_checks = 0
+                self._force_reconnect()
+                continue
+
+            if resp.status_code != 200:
+                logger.warning("Signal: health check failed (%d), forcing reconnect", resp.status_code)
+                self._consecutive_idle_health_checks = 0
+                self._force_reconnect()
+                continue
+
+            # Daemon is alive but OUR SSE stream has produced nothing past the
+            # stale threshold. Do NOT bump _last_sse_activity here (that was the
+            # bug: it masked a silently-dead stream as "just quiet" forever).
+            # Count consecutive idle-but-healthy cycles and reconnect once the
+            # stream has clearly gone dead rather than black-holing inbound
+            # messages until a manual restart.
+            self._consecutive_idle_health_checks += 1
+            if self._consecutive_idle_health_checks >= HEALTH_CHECK_IDLE_RECONNECT_CYCLES:
+                logger.warning(
+                    "Signal: daemon healthy but SSE idle for %.0fs across %d checks — "
+                    "stream presumed dead, forcing reconnect",
+                    elapsed, self._consecutive_idle_health_checks,
+                )
+                self._consecutive_idle_health_checks = 0
+                self._force_reconnect()
+            else:
+                logger.debug(
+                    "Signal: daemon healthy, SSE idle (%d/%d before reconnect)",
+                    self._consecutive_idle_health_checks,
+                    HEALTH_CHECK_IDLE_RECONNECT_CYCLES,
+                )
 
     def _force_reconnect(self) -> None:
         """Force SSE reconnection by closing the current response."""

@@ -877,8 +877,13 @@ def run_conversation(
             tcs = am.get("tool_calls")
             if not tcs:
                 continue
+            # Fingerprint includes id + name, not just arguments: on id()
+            # reuse (list GC'd, new list at the same address) two different
+            # tool_calls with identical argument strings but different call
+            # ids/names must NOT share a cache entry, or the cached normalized
+            # list would substitute the wrong id/name into the request.
             _fingerprint = tuple(
-                tc["function"].get("arguments")
+                (tc.get("id"), tc["function"].get("name"), tc["function"].get("arguments"))
                 if isinstance(tc, dict) and "function" in tc
                 else None
                 for tc in tcs

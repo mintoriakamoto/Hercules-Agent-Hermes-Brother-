@@ -125,6 +125,70 @@ class TestSignalConnectCleanup:
         assert adapter._platform_lock_identity is None
 
 
+class TestSignalHealthMonitor:
+    """Regression: a healthy daemon must not mask a silently-dead SSE stream."""
+
+    @pytest.mark.asyncio
+    async def test_healthy_daemon_but_dead_stream_reconnects(self, monkeypatch):
+        import gateway.platforms.signal as sig
+
+        adapter = _make_signal_adapter(monkeypatch)
+        adapter.client = AsyncMock()
+        # Daemon always answers healthy — the bug was trusting this as proof
+        # the stream is alive.
+        adapter.client.get = AsyncMock(return_value=MagicMock(status_code=200))
+
+        reconnects = []
+        monkeypatch.setattr(adapter, "_force_reconnect", lambda: reconnects.append(True))
+
+        # Stream is stale (last activity far in the past) and never updated.
+        adapter._last_sse_activity = 0.0
+        adapter._running = True
+
+        # Fast-forward: no real sleeping, and stop after enough cycles.
+        cycles = {"n": 0}
+
+        async def fake_sleep(_):
+            cycles["n"] += 1
+            if cycles["n"] > sig.HEALTH_CHECK_IDLE_RECONNECT_CYCLES:
+                adapter._running = False
+
+        monkeypatch.setattr(sig.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(sig.time, "time", lambda: 10_000.0)
+
+        await adapter._health_monitor()
+
+        assert reconnects, "dead stream + healthy daemon must force a reconnect"
+
+    @pytest.mark.asyncio
+    async def test_active_stream_does_not_reconnect(self, monkeypatch):
+        import gateway.platforms.signal as sig
+
+        adapter = _make_signal_adapter(monkeypatch)
+        adapter.client = AsyncMock()
+        adapter.client.get = AsyncMock(return_value=MagicMock(status_code=200))
+        reconnects = []
+        monkeypatch.setattr(adapter, "_force_reconnect", lambda: reconnects.append(True))
+        adapter._running = True
+
+        now = [10_000.0]
+        monkeypatch.setattr(sig.time, "time", lambda: now[0])
+        # Stream is fresh (activity == now), so it's healthy every cycle.
+        adapter._last_sse_activity = now[0]
+
+        cycles = {"n": 0}
+
+        async def fake_sleep(_):
+            cycles["n"] += 1
+            if cycles["n"] > 4:
+                adapter._running = False
+
+        monkeypatch.setattr(sig.asyncio, "sleep", fake_sleep)
+        await adapter._health_monitor()
+
+        assert not reconnects, "an active stream must never be force-reconnected"
+
+
 class TestSignalHelpers:
     def test_redact_phone_long(self):
         from gateway.platforms.helpers import redact_phone
