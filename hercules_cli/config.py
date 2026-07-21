@@ -4524,7 +4524,13 @@ def _set_nested(config, dotted_key: str, value):
                     f"Cannot navigate into list at key {dotted_key!r}: "
                     f"segment {part!r} is not a numeric index"
                 )
-            current = current[idx]
+            try:
+                current = current[idx]
+            except IndexError:
+                raise IndexError(
+                    f"List index {idx} at key {dotted_key!r} is out of range "
+                    f"(list has {len(current)} item(s))"
+                )
         elif isinstance(current, dict):
             existing = current.get(part)
             # Preserve dicts and lists; replace missing/scalar with a fresh dict.
@@ -4537,7 +4543,18 @@ def _set_nested(config, dotted_key: str, value):
             )
     last = parts[-1]
     if isinstance(current, list):
-        current[int(last)] = value
+        try:
+            current[int(last)] = value
+        except ValueError:
+            raise TypeError(
+                f"Cannot set list element at key {dotted_key!r}: "
+                f"segment {last!r} is not a numeric index"
+            )
+        except IndexError:
+            raise IndexError(
+                f"List index {last} at key {dotted_key!r} is out of range "
+                f"(list has {len(current)} item(s))"
+            )
     else:
         current[last] = value
 
@@ -8216,7 +8233,14 @@ def config_command(args):
             print("  hercules config set terminal.backend docker")
             print("  hercules config set OPENROUTER_API_KEY sk-or-...")
             sys.exit(1)
-        set_config_value(key, value)
+        try:
+            set_config_value(key, value)
+        except (TypeError, IndexError) as exc:
+            # Malformed/out-of-range nested path (e.g. a list index past the
+            # end or a non-numeric list segment) — surface a clean message
+            # instead of dumping a Python traceback at the user.
+            print(f"✗ Could not set {key!r}: {exc}")
+            sys.exit(1)
     
     elif subcmd == "path":
         print(get_config_path())

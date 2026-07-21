@@ -1690,11 +1690,23 @@ def build_skills_system_prompt(
                     _cut = _i
                     break
             if _cut is not None:
-                _overflow_names = [
-                    _l.strip().lstrip("- ").split(":", 1)[0]
-                    for _l in index_lines[_cut:]
-                    if _l.lstrip().startswith("- ")
-                ]
+                # Extract skill names from every overflow line, not just the
+                # "- name: desc" per-skill lines: demoted categories emit a
+                # single "  <cat> [names only]: a, b, c" line carrying multiple
+                # names, which the old "- "-only filter dropped entirely
+                # (undercounting "+N more" and omitting those names from the
+                # hint). Category header lines ("  <cat>: <desc>") carry no
+                # skill names and are skipped.
+                _overflow_names = []
+                for _l in index_lines[_cut:]:
+                    _stripped = _l.strip()
+                    if _stripped.startswith("- "):
+                        _overflow_names.append(_stripped[2:].split(":", 1)[0].strip())
+                    elif "[names only]:" in _stripped:
+                        _names_part = _stripped.split("[names only]:", 1)[1]
+                        _overflow_names.extend(
+                            n.strip() for n in _names_part.split(",") if n.strip()
+                        )
                 index_lines = index_lines[:_cut]
                 index_lines.append(
                     f"  [+{len(_overflow_names)} more skills, descriptions "
