@@ -6,22 +6,28 @@ manifest_version: 1
 
 name: computer-use-linux
 description: Drive the Linux desktop (Wayland/X11) via AT-SPI + ydotool — screenshot, click, type, window control.
-source: https://github.com/avifenesh/computer-use-linux
+source: https://github.com/agent-sh/computer-use-linux
 
 # How to launch the server once installed. The keys here map 1:1 to the
 # `mcp_servers.<name>` block written into ~/.hercules/config.yaml by the
 # existing `_save_mcp_server()` helper in hercules_cli/mcp_config.py.
 #
 # This is an npm-published server, so there is no clone-and-build step: `npx`
-# resolves and runs the pinned package directly. That is why there is no
-# [install] block below — for npm/uvx servers transport.command IS the install
-# (see the n8n manifest's note for the git-clone alternative).
+# resolves and runs the package directly. That is why there is no [install]
+# block below — for npm/uvx servers transport.command IS the install (see the
+# n8n manifest's note for the git-clone alternative).
+#
+# The version is PINNED (not floated to `latest`), same policy as the git-ref
+# pins elsewhere in this catalog: the reviewed manifest must install exactly the
+# artifact that was reviewed. Bump this deliberately (and re-review) to adopt a
+# newer release. Published by npm user `avifenesh` (the upstream author); repo
+# lives under their `agent-sh` org.
 transport:
   type: stdio
   command: "npx"
   args:
     - "-y"
-    - "@agent-sh/computer-use-linux"
+    - "@agent-sh/computer-use-linux@0.4.1"
     - "mcp"
 
 # Authentication. Three shapes:
@@ -70,17 +76,19 @@ post_install: |
 
     2. Accessibility bridge — AT-SPI. Enable it once with the server's own
        helper (flips the gsettings toggle):
-         npx -y @agent-sh/computer-use-linux setup
+         npx -y @agent-sh/computer-use-linux@0.4.1 setup
 
     3. Desktop portals — xdg-desktop-portal and a backend for your compositor
        (gnome / gtk / kde / wlr) must be installed for screenshots.
 
     4. Window targeting (optional, GNOME) — for move/resize/activate on GNOME
        Shell, install the helper extension and log back in:
-         npx -y @agent-sh/computer-use-linux setup-window-targeting
+         npx -y @agent-sh/computer-use-linux@0.4.1 setup-window-targeting
 
   Verify readiness before your first session — this prints a JSON report of
   every subsystem (input, a11y, portal):
-    npx -y @agent-sh/computer-use-linux doctor
+    npx -y @agent-sh/computer-use-linux@0.4.1 doctor
+
+  (The pinned @0.4.1 matches the transport above — same reviewed version.)
 
   Start a new Hercules session to load the tools.
