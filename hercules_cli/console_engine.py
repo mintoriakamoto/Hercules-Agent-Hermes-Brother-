@@ -1318,8 +1318,6 @@ class HerculesConsoleEngine:
             ("profile", "alias"): "`profile alias` creates shell wrappers and is not available in Hercules Console.",
             ("skills", "config"): "`skills config` is interactive and is not available in Hercules Console.",
             ("skills", "publish"): "`skills publish` is not available in Hercules Console.",
-            ("portal", "login"): "`portal login` is interactive and is not available in Hercules Console.",
-            ("portal", "open"): "`portal open` opens a browser and is not available in Hercules Console.",
             ("kanban", "tail"): "`kanban tail` streams output and is not available in Hercules Console.",
             ("kanban", "watch"): "`kanban watch` streams output and is not available in Hercules Console.",
             ("kanban", "daemon"): "`kanban daemon` starts a service and is not available in Hercules Console.",
